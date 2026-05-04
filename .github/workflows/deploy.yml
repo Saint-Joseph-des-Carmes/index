@@ -20,21 +20,40 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      # 1. Télécharger le site distant et remplacer le texte
-      - name: Générer la page modifiée
+      # 1. Télécharger le site complet (HTML + CSS + JS + images + liens)
+      - name: Télécharger le site complet avec wget
         run: |
-          mkdir -p _site
-          curl -s -L "https://www.saintjosephdescarmes.com" -o _site/index.html
-          sed -i 's/Chanteurs/Rapeurs/gi' _site/index.html
-          echo "✅ Page générée avec modifications"
+          wget \
+            --mirror \
+            --convert-links \
+            --adjust-extension \
+            --page-requisites \
+            --no-parent \
+            --no-check-certificate \
+            --directory-prefix=_raw \
+            --quiet \
+            https://www.saintjosephdescarmes.com
 
-      # 2. Préparer l'artefact pour GitHub Pages
+          # Déplacer les fichiers dans _site/
+          mkdir -p _site
+          cp -r _raw/www.saintjosephdescarmes.com/. _site/
+
+          echo "✅ Site téléchargé"
+          ls _site/
+
+      # 2. Remplacer "Chanteurs" par "Rapeurs" dans tous les fichiers HTML
+      - name: Appliquer les modifications de texte
+        run: |
+          find _site -name "*.html" -exec sed -i 's/Chanteurs/Rapeurs/gi' {} +
+          echo "✅ Texte remplacé dans tous les fichiers HTML"
+
+      # 3. Préparer l'artefact pour GitHub Pages
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
-      # 3. Déployer sur GitHub Pages
+      # 4. Déployer sur GitHub Pages
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
