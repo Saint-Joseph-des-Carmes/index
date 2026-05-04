@@ -1,4 +1,4 @@
-name: Mirror Complet - Correction Rappeur & 404
+name: Mirror Complet - Correction Rappeur & Deploy Fix
 
 on:
   push:
@@ -18,29 +18,31 @@ concurrency:
 
 jobs:
   mirror-and-deploy:
+    # C'est ici qu'on corrige l'erreur "Missing environment"
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
     steps:
-      # 1. Préparation du dépôt
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. Installation des outils
       - name: Install tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq wget python3
           pip3 install --quiet beautifulsoup4 lxml
 
-      # 3. Mirroring APLATIT (Correction de la 404)
-      - name: Mirror with wget
+      - name: Mirror with wget (Fix 404)
         run: |
           rm -rf site
           mkdir -p site
-          # -nH (no-host-directories) évite de créer le dossier 'www.saintjosephdescarmes.com'
+          # -nH (no-host-directories) met l'index.html à la racine du dossier site
           wget \
             --mirror \
             --page-requisites \
@@ -52,14 +54,12 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      # 4. Correction Orthographe (Rappeur) + Injection Script
-      - name: Text replacement & Injection
+      - name: Python Processing (Rappeur + Injection)
         shell: python
         run: |
           import os, re
           from bs4 import BeautifulSoup
 
-          # Script MutationObserver pour les contenus chargés en JS
           INJECTION = """<script>
           (function(){
             function fix(node){
@@ -82,11 +82,10 @@ jobs:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
                               content = fh.read()
                           
-                          # Correction orthographique globale
+                          # Remplacement systématique avec correction orthographique
                           content = re.sub(r'Chanteur', 'Rappeur', content)
                           content = re.sub(r'chanteur', 'rappeur', content)
                           
-                          # Injection dans le HTML
                           if f.lower().endswith(('.html', '.htm')) and "</body>" in content.lower():
                               content = content.replace("</body>", INJECTION + "</body>")
                           
@@ -94,24 +93,23 @@ jobs:
                               fh.write(content)
                       except: pass
 
-      # 5. Commit des fichiers (Pour inspection)
-      - name: Commit changes
+      - name: Commit changes (Visualisation)
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add site/
           if git diff --cached --quiet; then
-            echo "Rien à committer"
+            echo "Aucun changement"
           else
-            git commit -m "MAJ Mirror : $(date -u)"
+            git commit -m "Mirror update : $(date -u)"
             git push origin main
           fi
 
-      # 6. Déploiement sur GitHub Pages
-      - name: Upload artifact
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - name: Deploy
+      - name: Deploy to GitHub Pages
+        id: deploy
         uses: actions/deploy-pages@v4
