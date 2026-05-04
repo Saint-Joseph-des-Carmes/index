@@ -1,9 +1,14 @@
-name: Mirror Final - URLs et JS Sécurisés
+name: Mirror Horaire - URLs et JS Sécurisés
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+  # ------------------------------------------------------------
+  # AJOUT : Déclenchement automatique toutes les heures (UTC)
+  # ------------------------------------------------------------
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: # Permet de lancer manuellement si besoin
 
 permissions:
   contents: write
@@ -24,7 +29,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ÉTAPE MANQUANTE AJOUTÉE ICI : On installe bs4 et lxml
       - name: Install Dependencies
         run: pip3 install beautifulsoup4 lxml
 
@@ -49,12 +53,10 @@ jobs:
           import os, re
           from bs4 import BeautifulSoup, Comment
 
-          # Le script JS dynamisé ignore désormais les balises <script> et <style>
           js_fix = """
           <script>
           (function(){
             const fix = (n) => {
-              // Ignore les balises de script et de style pour ne pas casser le code
               if(n.nodeName === 'SCRIPT' || n.nodeName === 'STYLE') return;
               if(n.nodeType === 3) {
                 n.nodeValue = n.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
@@ -74,21 +76,17 @@ jobs:
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
-                  # On ne traite QUE les fichiers HTML. Les fichiers JS/CSS restent intacts !
                   if f.lower().endswith(('.html', '.htm')):
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                               soup = BeautifulSoup(file.read(), 'lxml')
                           
-                          # Remplacement "Chanteur -> Rappeur" UNIQUEMENT dans le texte visible
                           for text_node in soup.find_all(string=True):
-                              # On exclut le code interne (CSS, JS, Commentaires HTML)
                               if text_node.parent.name not in ['script', 'style'] and not isinstance(text_node, Comment):
                                   new_text = text_node.replace('Chanteur', 'Rappeur').replace('chanteur', 'rappeur')
                                   if new_text != text_node:
                                       text_node.replace_with(new_text)
 
-                          # Injection propre du script pour le contenu dynamique
                           content = str(soup)
                           if "</body>" in content.lower():
                               content = re.sub(r'(?i)</body>', f'{js_fix}</body>', content)
