@@ -1,4 +1,4 @@
-name: Mirror Pro + Fix URLs
+name: Mirror Pro - Correction Rappeur
 
 on:
   push:
@@ -23,20 +23,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Tools
+      - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y wget
           pip3 install beautifulsoup4 lxml
 
-      - name: Mirror with Better Logic
+      - name: Mirror Site (Optimized wget)
         run: |
           rm -rf site && mkdir site
-          # On limite la profondeur pour éviter de télécharger tout le web
-          # --adjust-extension rajoute .html si besoin pour GitHub Pages
+          # On télécharge avec des options qui préservent la structure locale
           wget \
             --recursive \
-            --level=2 \
+            --level=3 \
             --page-requisites \
             --adjust-extension \
             --convert-links \
@@ -46,51 +45,71 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Python Post-Processing (Hard Fix)
+      - name: Advanced Processing (Text & URLs)
         shell: python
         run: |
-          import os
+          import os, re
           from bs4 import BeautifulSoup
 
-          # 1. Remplacement texte et 2. Correction URLs
-          for root, dirs, files in os.walk("site"):
-              for file in files:
-                  if file.endswith(".html"):
+          def fix_content(root_dir):
+              for root, dirs, files in os.walk(root_dir):
+                  for file in files:
                       path = os.path.join(root, file)
-                      with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                          soup = BeautifulSoup(f.read(), 'lxml')
                       
-                      # Remplacement du texte
-                      for text_node in soup.find_all(string=True):
-                          if "Chanteur" in text_node:
-                              new_text = text_node.replace("Chanteur", "Rapeur")
-                              text_node.replace_with(new_text)
+                      # On ne traite que les fichiers texte
+                      if file.lower().endswith(('.html', '.htm', '.js', '.json', '.txt', '.css')):
+                          try:
+                              with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                                  content = f.read()
 
-                      # Injection du script de MutationObserver amélioré
-                      new_script = soup.new_tag("script")
-                      new_script.string = """
-                        const observer = new MutationObserver((mutations) => {
-                          mutations.forEach((mutation) => {
-                            mutation.addedNodes.forEach((node) => {
-                              if (node.nodeType === 3) {
-                                node.nodeValue = node.nodeValue.replace(/Chanteur/gi, 'Rapeur');
-                              }
-                            });
-                          });
-                        });
-                        observer.observe(document.body, { childList: true, subtree: true });
-                      """
-                      if soup.body:
-                          soup.body.append(new_script)
+                              # 1. Remplacement textuel global (Correction orthographe incluse)
+                              # On remplace Chanteur/chanteur par Rappeur/rappeur
+                              content = re.sub(r'Chanteur', 'Rappeur', content)
+                              content = re.sub(r'chanteur', 'rappeur', content)
+                              content = re.sub(r'CHANTEUR', 'RAPPEUR', content)
 
-                      with open(path, 'w', encoding='utf-8') as f:
-                          f.write(str(soup))
+                              # 2. Injection spécifique dans le HTML
+                              if file.lower().endswith(('.html', '.htm')):
+                                  soup = BeautifulSoup(content, 'lxml')
+                                  
+                                  # Injection du MutationObserver pour le contenu dynamique
+                                  script_tag = soup.new_tag("script")
+                                  script_tag.string = """
+                                    (function() {
+                                      const replaceText = (node) => {
+                                        if (node.nodeType === 3) {
+                                          node.nodeValue = node.nodeValue
+                                            .replace(/Chanteur/g, 'Rappeur')
+                                            .replace(/chanteur/g, 'rappeur');
+                                        } else {
+                                          node.childNodes.forEach(replaceText);
+                                        }
+                                      };
+                                      const observer = new MutationObserver((mutations) => {
+                                        mutations.forEach(m => m.addedNodes.forEach(replaceText));
+                                      });
+                                      document.addEventListener('DOMContentLoaded', () => {
+                                        replaceText(document.body);
+                                        observer.observe(document.body, { childList: true, subtree: true });
+                                      });
+                                    })();
+                                  """
+                                  if soup.body:
+                                      soup.body.append(script_tag)
+                                  content = str(soup)
 
-      - name: Upload to GitHub Pages
+                              with open(path, 'w', encoding='utf-8') as f:
+                                  f.write(content)
+                          except Exception as e:
+                              print(f"Erreur sur {path}: {e}")
+
+          fix_content("site")
+
+      - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - name: Deploy
+      - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
