@@ -1,10 +1,8 @@
-name: Mirror Complet - Correction Finale 404
+name: Mirror Final - Depot Index Fix
 
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: '0 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -17,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -25,18 +23,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Dependencies
-        run: pip3 install beautifulsoup4 lxml
-
-      - name: Mirroring (Anti-404 Config)
+      - name: Mirroring (Strict Root)
         run: |
-          rm -rf site
-          mkdir -p site
-          # -nH : supprime le dossier du nom de domaine
-          # --no-parent : ne remonte pas au dessus du site
+          rm -rf site && mkdir site
           wget \
             --mirror \
             --page-requisites \
@@ -48,13 +38,11 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Python Processing (Relative Paths & Rappeur)
+      - name: Text Processing (Rappeur & Absolute Fix)
         shell: python
         run: |
           import os, re
-          from bs4 import BeautifulSoup
-
-          # Script MutationObserver (Correction orthographe : Rappeur)
+          
           js_fix = """
           <script>
           (function(){
@@ -71,22 +59,15 @@ jobs:
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
-                  if f.lower().endswith(('.html', '.htm', '.js', '.css', '.json')):
+                  if f.lower().endswith(('.html', '.htm', '.js', '.css')):
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                               content = file.read()
                           
-                          # 1. Remplacement texte (Chanteur -> Rappeur)
-                          content = re.sub(r'Chanteur', 'Rappeur', content)
-                          content = re.sub(r'chanteur', 'rappeur', content)
-
-                          # 2. Correction des URLs ABSOLUES en RELATIVES (Crucial pour éviter 404)
-                          # On remplace les src="/... et href="/... par src="./... et href="./...
-                          if f.lower().endswith(('.html', '.htm', '.css')):
-                              content = re.sub(r'href="/', 'href="./', content)
-                              content = re.sub(r'src="/', 'src="./', content)
+                          # 1. Remplacement "Rappeur" (2 'p')
+                          content = content.replace("Chanteur", "Rappeur").replace("chanteur", "rappeur")
                           
-                          # 3. Injection JS dans le HTML
+                          # 2. Injection JS
                           if f.lower().endswith(('.html', '.htm')) and "</body>" in content:
                               content = content.replace("</body>", js_fix + "</body>")
                           
@@ -94,22 +75,13 @@ jobs:
                               file.write(content)
                       except: pass
 
-      - name: Commit site/ folder
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add site/
-          if git diff --cached --quiet; then
-            echo "Pas de changements"
-          else
-            git commit -m "Mirror update $(date)"
-            git push origin main
-          fi
+      - name: Create .nojekyll
+        run: touch site/.nojekyll # Indispensable pour WordPress/fichiers avec underscores
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site # On déploie directement le contenu de site/
+          path: site
 
       - name: Deploy to GitHub Pages
         id: deployment
