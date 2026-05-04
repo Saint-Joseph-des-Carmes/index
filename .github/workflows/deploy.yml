@@ -1,4 +1,4 @@
-name: Mirror Complet - Correction Rappeur & Deploy Fix
+name: Mirror Pro + Fix URLs
 
 on:
   push:
@@ -18,33 +18,25 @@ concurrency:
 
 jobs:
   mirror-and-deploy:
-    # C'est ici qu'on corrige l'erreur "Missing environment"
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-    
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install tools
+      - name: Install Tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq wget python3
-          pip3 install --quiet beautifulsoup4 lxml
+          sudo apt-get update
+          sudo apt-get install -y wget
+          pip3 install beautifulsoup4 lxml
 
-      - name: Mirror with wget (Fix 404)
+      - name: Mirror with Better Logic
         run: |
-          rm -rf site
-          mkdir -p site
-          # -nH (no-host-directories) met l'index.html à la racine du dossier site
+          rm -rf site && mkdir site
+          # On limite la profondeur pour éviter de télécharger tout le web
+          # --adjust-extension rajoute .html si besoin pour GitHub Pages
           wget \
-            --mirror \
+            --recursive \
+            --level=2 \
             --page-requisites \
             --adjust-extension \
             --convert-links \
@@ -54,62 +46,51 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Python Processing (Rappeur + Injection)
+      - name: Python Post-Processing (Hard Fix)
         shell: python
         run: |
-          import os, re
+          import os
           from bs4 import BeautifulSoup
 
-          INJECTION = """<script>
-          (function(){
-            function fix(node){
-              if(node.nodeType===3){
-                node.nodeValue=node.nodeValue.replace(/Chanteur/gi,"Rappeur");
-              } else {
-                node.childNodes.forEach(fix);
-              }
-            }
-            new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(fix))).observe(document, {childList:true, subtree:true});
-            window.addEventListener('DOMContentLoaded', () => fix(document.body));
-          })();
-          </script>"""
+          # 1. Remplacement texte et 2. Correction URLs
+          for root, dirs, files in os.walk("site"):
+              for file in files:
+                  if file.endswith(".html"):
+                      path = os.path.join(root, file)
+                      with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                          soup = BeautifulSoup(f.read(), 'lxml')
+                      
+                      # Remplacement du texte
+                      for text_node in soup.find_all(string=True):
+                          if "Chanteur" in text_node:
+                              new_text = text_node.replace("Chanteur", "Rapeur")
+                              text_node.replace_with(new_text)
 
-          for root, _, files in os.walk("site"):
-              for f in files:
-                  path = os.path.join(root, f)
-                  if f.lower().endswith(('.html', '.htm', '.js', '.css', '.txt', '.json')):
-                      try:
-                          with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
-                              content = fh.read()
-                          
-                          # Remplacement systématique avec correction orthographique
-                          content = re.sub(r'Chanteur', 'Rappeur', content)
-                          content = re.sub(r'chanteur', 'rappeur', content)
-                          
-                          if f.lower().endswith(('.html', '.htm')) and "</body>" in content.lower():
-                              content = content.replace("</body>", INJECTION + "</body>")
-                          
-                          with open(path, 'w', encoding='utf-8') as fh:
-                              fh.write(content)
-                      except: pass
+                      # Injection du script de MutationObserver amélioré
+                      new_script = soup.new_tag("script")
+                      new_script.string = """
+                        const observer = new MutationObserver((mutations) => {
+                          mutations.forEach((mutation) => {
+                            mutation.addedNodes.forEach((node) => {
+                              if (node.nodeType === 3) {
+                                node.nodeValue = node.nodeValue.replace(/Chanteur/gi, 'Rapeur');
+                              }
+                            });
+                          });
+                        });
+                        observer.observe(document.body, { childList: true, subtree: true });
+                      """
+                      if soup.body:
+                          soup.body.append(new_script)
 
-      - name: Commit changes (Visualisation)
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add site/
-          if git diff --cached --quiet; then
-            echo "Aucun changement"
-          else
-            git commit -m "Mirror update : $(date -u)"
-            git push origin main
-          fi
+                      with open(path, 'w', encoding='utf-8') as f:
+                          f.write(str(soup))
 
-      - name: Upload Pages artifact
+      - name: Upload to GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - name: Deploy to GitHub Pages
+      - name: Deploy
         id: deploy
         uses: actions/deploy-pages@v4
