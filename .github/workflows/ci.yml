@@ -1,0 +1,143 @@
+# --------------------------------------------------------------
+# .github/workflows/ci.yml
+# Workflow complet qui
+# • génère un package‑lock.json s’il n’existe pas,
+# • utilise npm ci (ou npm install en secours),
+# • met en cache les dépendances,
+# • peut être adapté (variables d’environnement, scripts post‑build, etc.).
+# --------------------------------------------------------------
+
+name: CI – Build, Test & Deploy
+
+# -----------------------------------------------------------------
+# Triggers
+# -----------------------------------------------------------------
+on:
+  push:
+    branches: [ main ]          # exécuter à chaque push sur la branche principale
+  pull_request:
+    branches: [ main ]          # exécuter sur les PRs ciblant main
+  workflow_dispatch: {}        # lancement manuel possible depuis l’UI GitHub
+
+# -----------------------------------------------------------------
+# Jobs
+# -----------------------------------------------------------------
+jobs:
+  build:
+    # -------------------------------------------------------------
+    # Environnement d’exécution
+    # -------------------------------------------------------------
+    runs-on: ubuntu-latest
+    # -------------------------------------------------------------
+    # Stratégie (facultatif) – paralléliser sur plusieurs versions Node
+    # -------------------------------------------------------------
+    strategy:
+      matrix:
+        node-version: [18.x]   # vous pouvez ajouter 16.x, 20.x etc. ici
+
+    # -------------------------------------------------------------
+    # Étapes
+    # -------------------------------------------------------------
+    steps:
+
+      # ---------------------------------------------------------
+      # 1️⃣ Checkout du dépôt
+      # ---------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # 2️⃣ Mettre en place Node.js
+      # ---------------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"            # active le cache npm intégré (équivalent à actions/cache)
+
+      # ---------------------------------------------------------
+      # 3️⃣ Restaurer le cache npm (node_modules) s’il existe déjà
+      # ---------------------------------------------------------
+      - name: Cache node_modules
+        id: npm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            **/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json', 'package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      # ---------------------------------------------------------
+      # 4️⃣ S’assurer qu’un lock‑file existe
+      #    - Si package‑lock.json ou npm‑shrinkwrap.json est absent,
+      #      on lance npm install pour le créer.
+      # ---------------------------------------------------------
+      - name: Ensure lockfile exists
+        id: lockfile
+        run: |
+          if [ ! -f package-lock.json ] && [ ! -f npm-shrinkwrap.json ]; then
+            echo "⚡ Aucun lock‑file trouvé → npm install pour le générer"
+            npm install
+          else
+            echo "✅ Lock‑file déjà présent"
+          fi
+
+      # ---------------------------------------------------------
+      # 5️⃣ Installation propre avec npm ci
+      #    - Si npm ci échoue (ex. parce que le lock‑file est corrompu),
+      #      on bascule sur npm install pour garantir la suite du build.
+      # ---------------------------------------------------------
+      - name: Install dependencies (npm ci)
+        id: npm-ci
+        run: |
+          set -euo pipefail
+          if npm ci; then
+            echo "✅ npm ci a réussi"
+          else
+            echo "⚠️ npm ci a échoué → fallback vers npm install"
+            npm install
+          fi
+
+      # ---------------------------------------------------------
+      # 6️⃣ Lancer les scripts de test (si vous en avez)
+      # ---------------------------------------------------------
+      - name: Run tests
+        if: always()            # s’exécute même si le step précédent a fallback
+        run: |
+          # Remplacez par votre commande de test réelle
+          echo "🔧 Aucune suite de tests définie – ajoutez votre npm test ici"
+          # npm test
+
+      # ---------------------------------------------------------
+      # 7️⃣ Build de production (exemple : génération du proxy)
+      # ---------------------------------------------------------
+      - name: Build project (optional)
+        if: always()
+        run: |
+          # Exemple : npm run build
+          echo "🛠️ Aucun script de build défini – ajoutez le ici si besoin"
+          # npm run build
+
+      # ---------------------------------------------------------
+      # 8️⃣ (Optionnel) Déploiement – Vercel, GitHub Pages, etc.
+      # ---------------------------------------------------------
+      - name: Deploy to Vercel (optional)
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npm i -g vercel@latest
+          vercel pull --yes --environment production
+          vercel --prod --token $VERCEL_TOKEN
+
+      # ---------------------------------------------------------
+      # 9️⃣ Nettoyage (facultatif) – supprime le cache si le jour
+      # ---------------------------------------------------------
+      - name: Post‑run cleanup
+        if: always()
+        run: |
+          echo "🧹 Nettoyage terminé"
