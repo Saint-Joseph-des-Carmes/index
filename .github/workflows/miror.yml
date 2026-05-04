@@ -1,4 +1,4 @@
-name: Mirror & Deploy Direct
+name: Mirror & Force Deploy
 
 on:
   push:
@@ -16,7 +16,6 @@ concurrency:
 
 jobs:
   build-and-deploy:
-    # On définit l'environnement pour GitHub Pages
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -25,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Mirroring (Correction 404)
+      - name: Mirroring
         run: |
           rm -rf site && mkdir site
           wget \
@@ -39,11 +38,10 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Python Fix (Rappeur)
+      - name: Text Fix (Rappeur)
         shell: python
         run: |
-          import os, re
-          # Remplacement "Chanteur" -> "Rappeur" (2 'p')
+          import os
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
@@ -51,21 +49,20 @@ jobs:
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                               content = file.read()
+                          # Correction systématique Rappeur (2 'p')
                           content = content.replace("Chanteur", "Rappeur").replace("chanteur", "rappeur")
                           with open(path, 'w', encoding='utf-8') as file:
                               file.write(content)
                       except: pass
 
-      - name: Anti-Jekyll
+      - name: NoJekyll
         run: touch site/.nojekyll
 
-      # ÉTAPE CLÉ 1 : Créer le paquet pour GitHub Pages
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      # ÉTAPE CLÉ 2 : Envoyer le paquet au déploiement
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
