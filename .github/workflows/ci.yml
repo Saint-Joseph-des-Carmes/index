@@ -1,5 +1,52 @@
-# Sur votre machine locale (ou dans un premier run CI)
-npm install          # génère package-lock.json
-git add package-lock.json
-git commit -m "Add package‑lock.json – required for npm ci"
-git push
+# 1️⃣ Créez le dépôt sur GitHub (déjà fait) puis clonez‑le
+git clone https://github.com/<votre‑user>/hourly-deploy-page.git
+cd hourly-deploy-page
+
+# 2️⃣ Ajoutez le fichier HTML
+cat > index.html <<'EOF'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Saint‑Joseph des Carmes – Page horaire</title>
+  <style>
+    html, body { height:100%; margin:0; overflow:hidden; }
+    iframe { display:block; width:100vw; height:100vh; border:none; }
+  </style>
+</head>
+<body>
+  <iframe src="https://www.saintjosephdescarmes.com"></iframe>
+</body>
+</html>
+EOF
+
+git add index.html
+git commit -m "Add static page"
+git push origin main
+
+# 3️⃣ Créez le workflow
+mkdir -p .github/workflows
+cat > .github/workflows/hourly-deploy.yml <<'EOF'
+name: Déploiement horaire du site statique
+on:
+  schedule:
+    - cron: '0 * * * *'   # chaque heure à minute 0 (UTC)
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: ./
+          force_orphan: true
+          keep_files: false
+EOF
+
+git add .github/workflows/hourly-deploy.yml
+git commit -m "Add hourly deployment workflow"
+git push origin main
