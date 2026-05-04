@@ -1,4 +1,4 @@
-name: Mirror & Force Deploy
+name: Mirror Final - URLs et JS Sécurisés
 
 on:
   push:
@@ -24,9 +24,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Mirroring
+      - name: Mirroring (Wget Sécurisé)
         run: |
           rm -rf site && mkdir site
+          # Ajout de "-e robots=off" pour s'assurer que les fichiers JS sont bien téléchargés
           wget \
             --mirror \
             --page-requisites \
@@ -34,28 +35,67 @@ jobs:
             --convert-links \
             --no-parent \
             --no-host-directories \
+            -e robots=off \
             --directory-prefix=site \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Text Fix (Rappeur)
+      - name: Remplacement Chirurgical (Texte uniquement)
         shell: python
         run: |
-          import os
+          import os, re
+          from bs4 import BeautifulSoup, Comment
+
+          # Le script JS dynamisé ignore désormais les balises <script> et <style>
+          js_fix = """
+          <script>
+          (function(){
+            const fix = (n) => {
+              // Ignore les balises de script et de style pour ne pas casser le code
+              if(n.nodeName === 'SCRIPT' || n.nodeName === 'STYLE') return;
+              if(n.nodeType === 3) {
+                n.nodeValue = n.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
+              } else if (n.childNodes) {
+                n.childNodes.forEach(fix);
+              }
+            };
+            const observer = new MutationObserver(m => m.forEach(r => r.addedNodes.forEach(fix)));
+            window.addEventListener('DOMContentLoaded', () => {
+              fix(document.body);
+              observer.observe(document.body, {childList:true, subtree:true});
+            });
+          })();
+          </script>
+          """
+
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
-                  if f.lower().endswith(('.html', '.htm', '.js', '.css')):
+                  # On ne traite QUE les fichiers HTML. Les fichiers JS/CSS restent intacts !
+                  if f.lower().endswith(('.html', '.htm')):
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
-                              content = file.read()
-                          # Correction systématique Rappeur (2 'p')
-                          content = content.replace("Chanteur", "Rappeur").replace("chanteur", "rappeur")
+                              soup = BeautifulSoup(file.read(), 'lxml')
+                          
+                          # Remplacement "Chanteur -> Rappeur" UNIQUEMENT dans le texte visible
+                          for text_node in soup.find_all(string=True):
+                              # On exclut le code interne (CSS, JS, Commentaires HTML)
+                              if text_node.parent.name not in ['script', 'style'] and not isinstance(text_node, Comment):
+                                  new_text = text_node.replace('Chanteur', 'Rappeur').replace('chanteur', 'rappeur')
+                                  if new_text != text_node:
+                                      text_node.replace_with(new_text)
+
+                          # Injection propre du script pour le contenu dynamique
+                          content = str(soup)
+                          if "</body>" in content.lower():
+                              content = re.sub(r'(?i)</body>', f'{js_fix}</body>', content)
+                          
                           with open(path, 'w', encoding='utf-8') as file:
                               file.write(content)
-                      except: pass
+                      except Exception as e:
+                          print(f"Erreur sur {path} : {e}")
 
-      - name: NoJekyll
+      - name: Fix Jekyll
         run: touch site/.nojekyll
 
       - name: Upload artifact
