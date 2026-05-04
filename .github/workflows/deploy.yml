@@ -1,25 +1,11 @@
-# ==============================================================
-# GitHub Actions – Mirror complet + déploiement GitHub Pages
-#
-# Corrections apportées :
-#   - Ajout de .nojekyll (CRITIQUE : sans ça Jekyll casse tout)
-#   - robots=off pour ne pas se faire bloquer par wget
-#   - --span-hosts pour récupérer les ressources sur CDN externes
-#   - Réécriture URL séparée par domaine (site vs CDN)
-#   - Gestion casse </body> / </BODY> dans l'injection JS
-#   - Correction des url() CSS non convertis par wget
-#   - Vérification et création d'un index.html racine si absent
-#   - Rapport d'erreur wget affiché (plus de | tail -30 aveugle)
-# ==============================================================
-
-name: Mirror complet + déploiement horaire
+name: Mirror Pro - Fix 404
 
 on:
   push:
     branches: [main]
   schedule:
     - cron: '0 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,329 +19,85 @@ concurrency:
 jobs:
   mirror-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-
     steps:
-
-      # ── 1. Checkout ──────────────────────────────────────────────
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 2. Outils ────────────────────────────────────────────────
-      - name: Install tools
+      - name: Install Tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq wget python3 python3-pip
-          pip3 install --quiet beautifulsoup4 lxml
+          sudo apt-get update
+          sudo apt-get install -y wget
+          pip3 install beautifulsoup4 lxml
 
-      # ── 3. Téléchargement ────────────────────────────────────────
-      - name: Mirror the whole site with wget
+      - name: Mirror Site
         run: |
-          rm -rf _mirror && mkdir -p _mirror
-
-          # IMPORTANT : on NE passe PAS --convert-links ici.
-          # On gère la réécriture URL nous-mêmes en Python (étape 5)
-          # pour avoir un contrôle total et éviter les conflits.
+          rm -rf _temp_mirror site
+          mkdir _temp_mirror site
+          
+          # Aspiration dans un dossier temporaire
           wget \
-            --recursive \
-            --level=inf \
+            --mirror \
             --page-requisites \
             --adjust-extension \
+            --convert-links \
             --no-parent \
-            --no-check-certificate \
-            --execute robots=off \
-            --no-verbose \
-            --retry-connrefused \
-            --wait=0.4 \
-            --random-wait \
-            --timeout=30 \
-            --tries=5 \
-            --span-hosts \
-            --domains="saintjosephdescarmes.com,www.saintjosephdescarmes.com,fonts.googleapis.com,fonts.gstatic.com,cdnjs.cloudflare.com,ajax.googleapis.com,use.fontawesome.com,kit.fontawesome.com" \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36" \
-            --header="Accept-Language: fr-FR,fr;q=0.9" \
-            --header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-            --directory-prefix=_mirror \
-            https://www.saintjosephdescarmes.com 2>&1 | grep -v "^$" | tail -60 || true
+            --no-host-directories \
+            --directory-prefix=_temp_mirror \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            https://www.saintjosephdescarmes.com || true
 
-          echo "📦 Fichiers téléchargés : $(find _mirror -type f | wc -l)"
+          # On déplace le contenu pour qu'il soit à la racine du futur site
+          # wget --no-host-directories aurait dû le faire, mais on sécurise ici :
+          cp -r _temp_mirror/. site/
+          rm -rf _temp_mirror
 
-      # ── 4. Copie vers site/ ──────────────────────────────────────
-      - name: Prepare site/ directory
+      - name: Text Processing (Rappeur & MutationObserver)
+        shell: python
         run: |
-          rm -rf site && mkdir -p site
-
-          # Chercher le dossier créé par wget
-          SRC=""
-          for d in \
-            "_mirror/www.saintjosephdescarmes.com" \
-            "_mirror/saintjosephdescarmes.com"
-          do
-            [ -d "$d" ] && SRC="$d" && break
-          done
-
-          if [ -z "$SRC" ]; then
-            echo "❌ Aucun dossier miroir trouvé. Contenu de _mirror/ :"
-            find _mirror -maxdepth 3 -type d
-            exit 1
-          fi
-
-          cp -r "$SRC"/. site/
-
-          # CRITIQUE : sans .nojekyll, GitHub Pages lance Jekyll
-          # qui ignore les dossiers _xxx et modifie les fichiers
-          touch site/.nojekyll
-
-          # S'assurer qu'un index.html existe à la racine
-          if [ ! -f site/index.html ]; then
-            # wget crée parfois index.html.1 ou index.php
-            FALLBACK=$(find site -maxdepth 2 -name "index.*" | head -1)
-            if [ -n "$FALLBACK" ]; then
-              cp "$FALLBACK" site/index.html
-              echo "⚠️  index.html créé depuis $FALLBACK"
-            else
-              echo "⚠️  Pas d'index trouvé, la page d'accueil pourrait être manquante"
-            fi
-          fi
-
-          echo "📂 $(find site -type f | wc -l) fichiers dans site/"
-
-      # ── 5. Réécriture des URLs absolues → relatives ──────────────
-      - name: Rewrite absolute URLs to root-relative paths
-        run: |
-          python3 << 'PYEOF'
           import os, re
+          from bs4 import BeautifulSoup
 
-          # Domaine principal du site mirrorisé
-          SITE_DOMAINS = [
-              "https://www.saintjosephdescarmes.com",
-              "http://www.saintjosephdescarmes.com",
-              "https://saintjosephdescarmes.com",
-              "http://saintjosephdescarmes.com",
-              "//www.saintjosephdescarmes.com",
-              "//saintjosephdescarmes.com",
-          ]
+          for root, dirs, files in os.walk("site"):
+              for file in files:
+                  path = os.path.join(root, file)
+                  if file.lower().endswith(('.html', '.htm', '.js', '.json', '.txt', '.css')):
+                      try:
+                          with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                              content = f.read()
 
-          # Extensions de fichiers texte à traiter
-          TEXT_EXTS = {".html", ".htm", ".css", ".js", ".json", ".xml", ".svg"}
+                          # Remplacement "Chanteur" -> "Rappeur" (Correction orthographe)
+                          content = re.sub(r'Chanteur', 'Rappeur', content)
+                          content = re.sub(r'chanteur', 'rappeur', content)
 
-          def rewrite(content: str) -> str:
-              for d in SITE_DOMAINS:
-                  # Remplace https://domain/path  →  /path
-                  content = content.replace(d + "/", "/")
-                  # Remplace https://domain (sans slash final) →  /
-                  content = content.replace(d, "/")
-              return content
+                          if file.lower().endswith(('.html', '.htm')):
+                              soup = BeautifulSoup(content, 'lxml')
+                              
+                              # On force les liens en relatifs pour éviter les 404 sur les sous-pages
+                              # Et on injecte le script pour le contenu dynamique
+                              script = soup.new_tag("script")
+                              script.string = """
+                                (function() {
+                                  const fix = (n) => {
+                                    if (n.nodeType === 3) n.nodeValue = n.nodeValue.replace(/Chanteur/gi, 'Rappeur');
+                                    else n.childNodes.forEach(fix);
+                                  };
+                                  new MutationObserver(m => m.forEach(r => r.addedNodes.forEach(fix))).observe(document, {childList:true, subtree:true});
+                                  window.addEventListener('DOMContentLoaded', () => fix(document.body));
+                                })();
+                              """
+                              if soup.body: soup.body.append(script)
+                              content = str(soup)
 
-          modified = 0
-          errors = 0
-          for root, _, files in os.walk("site"):
-              for fname in files:
-                  ext = os.path.splitext(fname)[1].lower()
-                  if ext not in TEXT_EXTS:
-                      continue
-                  path = os.path.join(root, fname)
-                  try:
-                      original = open(path, encoding="utf-8", errors="replace").read()
-                      fixed = rewrite(original)
-                      if fixed != original:
-                          open(path, "w", encoding="utf-8").write(fixed)
-                          modified += 1
-                  except Exception as e:
-                      print(f"  ⚠ {path}: {e}")
-                      errors += 1
+                          with open(path, 'w', encoding='utf-8') as f:
+                              f.write(content)
+                      except Exception as e:
+                          print(f"Erreur: {e}")
 
-          print(f"✅ URLs réécrites dans {modified} fichiers ({errors} erreurs)")
-          PYEOF
-
-      # ── 6. Correction des url() CSS (images de fond, fonts) ──────
-      - name: Fix CSS url() paths
-        run: |
-          python3 << 'PYEOF'
-          import os, re
-
-          # wget ne convertit pas toujours les url() dans les CSS
-          # Cette étape corrige les url() qui pointent encore vers
-          # le domaine d'origine.
-          SITE_DOMAINS = [
-              "https://www.saintjosephdescarmes.com",
-              "http://www.saintjosephdescarmes.com",
-              "https://saintjosephdescarmes.com",
-              "http://saintjosephdescarmes.com",
-          ]
-
-          # Regex pour trouver url("...") dans les CSS
-          URL_PATTERN = re.compile(
-              r"""url\(\s*(['"]?)(https?://[^'"\)]+)(['"]?)\s*\)""",
-              re.IGNORECASE
-          )
-
-          def fix_css_urls(content: str) -> str:
-              def replacer(m):
-                  quote = m.group(1)
-                  url = m.group(2)
-                  for d in SITE_DOMAINS:
-                      if url.startswith(d):
-                          url = url[len(d):]
-                          if not url.startswith("/"):
-                              url = "/" + url
-                          break
-                  return f"url({quote}{url}{quote})"
-              return URL_PATTERN.sub(replacer, content)
-
-          modified = 0
-          for root, _, files in os.walk("site"):
-              for fname in files:
-                  if not fname.lower().endswith(".css"):
-                      continue
-                  path = os.path.join(root, fname)
-                  try:
-                      src = open(path, encoding="utf-8", errors="replace").read()
-                      dst = fix_css_urls(src)
-                      if dst != src:
-                          open(path, "w", encoding="utf-8").write(dst)
-                          modified += 1
-                  except Exception as e:
-                      print(f"  ⚠ {path}: {e}")
-
-          print(f"✅ url() CSS corrigés dans {modified} fichiers")
-          PYEOF
-
-      # ── 7. Remplacement texte : Chanteur → Rapeur ────────────────
-      - name: Replace "Chanteur" → "Rapeur" in all text files
-        run: |
-          # -i = in place, s///gI = global + insensible à la casse (GNU sed)
-          find site -type f \( \
-            -name "*.html" -o -name "*.htm" \
-            -o -name "*.js" -o -name "*.css" \
-            -o -name "*.json" -o -name "*.txt" \
-          \) -exec sed -i 's/Chanteur/Rapeur/gI' {} +
-          echo "✅ Remplacement Chanteur → Rapeur terminé"
-
-      # ── 8. Injection MutationObserver pour le DOM dynamique ───────
-      - name: Inject MutationObserver into every HTML page
-        run: |
-          python3 << 'PYEOF'
-          import os, re
-
-          # Ce script capture les textes ajoutés dynamiquement par JS
-          SCRIPT = """<script>
-          (function(){
-            'use strict';
-            function replaceInNode(node){
-              if(node.nodeType===Node.TEXT_NODE){
-                var v=node.nodeValue;
-                if(/Chanteur/i.test(v)) node.nodeValue=v.replace(/Chanteur/gi,'Rapeur');
-              } else if(node.nodeType===Node.ELEMENT_NODE){
-                // Ne pas descendre dans les balises script/style
-                var tag=node.tagName?node.tagName.toUpperCase():'';
-                if(tag!=='SCRIPT'&&tag!=='STYLE'){
-                  for(var i=0;i<node.childNodes.length;i++) replaceInNode(node.childNodes[i]);
-                }
-              }
-            }
-            function runOnBody(){
-              if(document.body) replaceInNode(document.body);
-            }
-            if(document.readyState==='loading'){
-              document.addEventListener('DOMContentLoaded', runOnBody);
-            } else {
-              runOnBody();
-            }
-            var obs=new MutationObserver(function(mutations){
-              mutations.forEach(function(m){
-                m.addedNodes.forEach(replaceInNode);
-              });
-            });
-            // Observer lancé dès que possible
-            var target=document.documentElement||document.body;
-            if(target) obs.observe(target,{childList:true,subtree:true});
-          })();
-          </script>"""
-
-          # Regex insensible à la casse pour </body>
-          BODY_CLOSE = re.compile(r'</body\s*>', re.IGNORECASE)
-
-          count = 0
-          skipped = 0
-          for root, _, files in os.walk("site"):
-              for fname in files:
-                  if not fname.lower().endswith((".html", ".htm")):
-                      continue
-                  path = os.path.join(root, fname)
-                  try:
-                      content = open(path, encoding="utf-8", errors="replace").read()
-                      # Chercher </body> (insensible à la casse)
-                      match = list(BODY_CLOSE.finditer(content))
-                      if match:
-                          pos = match[-1].start()  # Dernière occurrence
-                          content = content[:pos] + SCRIPT + content[pos:]
-                          open(path, "w", encoding="utf-8").write(content)
-                          count += 1
-                      else:
-                          # Pas de </body> : ajouter le script à la fin
-                          content += SCRIPT
-                          open(path, "w", encoding="utf-8").write(content)
-                          skipped += 1
-                  except Exception as e:
-                      print(f"  ⚠ {path}: {e}")
-
-          print(f"✅ MutationObserver injecté : {count} avec </body>, {skipped} sans </body>")
-          PYEOF
-
-      # ── 9. Statistiques ──────────────────────────────────────────
-      - name: Site statistics
-        run: |
-          echo "====================================="
-          echo " STATISTIQUES DU SITE GÉNÉRÉ"
-          echo "====================================="
-          printf "  HTML   : %5d fichiers\n" "$(find site \( -name '*.html' -o -name '*.htm' \) | wc -l)"
-          printf "  CSS    : %5d fichiers\n" "$(find site -name '*.css' | wc -l)"
-          printf "  JS     : %5d fichiers\n" "$(find site -name '*.js' | wc -l)"
-          printf "  Images : %5d fichiers\n" "$(find site -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.svg' -o -name '*.webp' -o -name '*.gif' \) | wc -l)"
-          printf "  Fonts  : %5d fichiers\n" "$(find site -type f \( -name '*.woff' -o -name '*.woff2' -o -name '*.ttf' -o -name '*.otf' \) | wc -l)"
-          echo "  ─────────────────────────────────"
-          printf "  TOTAL  : %5d fichiers\n" "$(find site -type f | wc -l)"
-          printf "  TAILLE : %s\n"           "$(du -sh site | cut -f1)"
-          echo "====================================="
-          # Vérification basique
-          [ -f site/.nojekyll ] && echo "  ✅ .nojekyll présent" || echo "  ❌ .nojekyll ABSENT"
-          [ -f site/index.html ] && echo "  ✅ index.html présent" || echo "  ❌ index.html ABSENT"
-
-      # ── 10. Commit du dossier site/ dans le dépôt ────────────────
-      - name: Commit mirrored site to repository
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add site/
-          if git diff --cached --quiet; then
-            echo "⚙️  Aucun changement détecté, pas de commit"
-          else
-            CHANGED=$(git diff --cached --stat | tail -1)
-            git commit -m "Mirror $(date -u '+%Y-%m-%d %H:%M UTC') – $CHANGED"
-            git push origin main
-          fi
-
-      # ── 11. Upload de l'artifact Pages ───────────────────────────
-      - name: Upload Pages artifact
+      - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      # ── 12. Déploiement GitHub Pages ─────────────────────────────
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
-
-      # ── 13. Résumé ───────────────────────────────────────────────
-      - name: Summary
-        if: always()
-        run: |
-          echo "🚀 Site déployé : ${{ steps.deploy.outputs.page_url }}"
-          echo "🕒 Prochain run automatique dans ~1 heure"
