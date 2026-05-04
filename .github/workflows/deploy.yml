@@ -1,5 +1,5 @@
-name: Mirror Final - Depot Index Fix
- 
+name: Mirror & Deploy Direct
+
 on:
   push:
     branches: [main]
@@ -15,7 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build-and-deploy:
+    # On définit l'environnement pour GitHub Pages
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -24,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Mirroring (Strict Root)
+      - name: Mirroring (Correction 404)
         run: |
           rm -rf site && mkdir site
           wget \
@@ -38,24 +39,11 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Text Processing (Rappeur & Absolute Fix)
+      - name: Python Fix (Rappeur)
         shell: python
         run: |
           import os, re
-          
-          js_fix = """
-          <script>
-          (function(){
-            const fix = (n) => {
-              if(n.nodeType === 3) n.nodeValue = n.nodeValue.replace(/Chanteur/gi, 'Rappeur');
-              else n.childNodes.forEach(fix);
-            };
-            new MutationObserver(m => m.forEach(r => r.addedNodes.forEach(fix))).observe(document, {childList:true, subtree:true});
-            window.addEventListener('DOMContentLoaded', () => fix(document.body));
-          })();
-          </script>
-          """
-
+          # Remplacement "Chanteur" -> "Rappeur" (2 'p')
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
@@ -63,26 +51,21 @@ jobs:
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                               content = file.read()
-                          
-                          # 1. Remplacement "Rappeur" (2 'p')
                           content = content.replace("Chanteur", "Rappeur").replace("chanteur", "rappeur")
-                          
-                          # 2. Injection JS
-                          if f.lower().endswith(('.html', '.htm')) and "</body>" in content:
-                              content = content.replace("</body>", js_fix + "</body>")
-                          
                           with open(path, 'w', encoding='utf-8') as file:
                               file.write(content)
                       except: pass
 
-      - name: Create .nojekyll
-        run: touch site/.nojekyll # Indispensable pour WordPress/fichiers avec underscores
+      - name: Anti-Jekyll
+        run: touch site/.nojekyll
 
+      # ÉTAPE CLÉ 1 : Créer le paquet pour GitHub Pages
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
+      # ÉTAPE CLÉ 2 : Envoyer le paquet au déploiement
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
