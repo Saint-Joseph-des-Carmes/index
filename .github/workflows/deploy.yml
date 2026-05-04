@@ -1,0 +1,40 @@
+name: Générer et déployer la page modifiée
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      # 1. Télécharger le site distant et remplacer le texte
+      - name: Générer la page modifiée
+        run: |
+          mkdir -p _site
+          curl -s -L "https://www.saintjosephdescarmes.com" -o _site/index.html
+          sed -i 's/Chanteurs/Rapeurs/gi' _site/index.html
+          echo "✅ Page générée avec modifications"
+
+      # 2. Préparer l'artefact pour GitHub Pages
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      # 3. Déployer sur GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
