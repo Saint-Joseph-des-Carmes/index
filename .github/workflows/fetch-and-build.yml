@@ -1,0 +1,34 @@
+name: Build & Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]          # chaque push déclenche le build
+  workflow_dispatch: {}      # lancement manuel possible
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install deps
+        run: npm ci
+        working-directory: src
+
+      - name: Build proxy page
+        run: node build-proxy.js
+        working-directory: src
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          force_orphan: true
