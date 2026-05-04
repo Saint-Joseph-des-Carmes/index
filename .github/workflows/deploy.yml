@@ -1,4 +1,4 @@
-name: Mirror Pro - Fix 404
+name: Mirror Complet - Correction Rappeur & 404
 
 on:
   push:
@@ -19,22 +19,28 @@ concurrency:
 jobs:
   mirror-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+
     steps:
-      - name: Checkout
+      # 1. Préparation du dépôt
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Tools
+      # 2. Installation des outils
+      - name: Install tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
-          pip3 install beautifulsoup4 lxml
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq wget python3
+          pip3 install --quiet beautifulsoup4 lxml
 
-      - name: Mirror Site
+      # 3. Mirroring APLATIT (Correction de la 404)
+      - name: Mirror with wget
         run: |
-          rm -rf _temp_mirror site
-          mkdir _temp_mirror site
-          
-          # Aspiration dans un dossier temporaire
+          rm -rf site
+          mkdir -p site
+          # -nH (no-host-directories) évite de créer le dossier 'www.saintjosephdescarmes.com'
           wget \
             --mirror \
             --page-requisites \
@@ -42,62 +48,70 @@ jobs:
             --convert-links \
             --no-parent \
             --no-host-directories \
-            --directory-prefix=_temp_mirror \
+            --directory-prefix=site \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-          # On déplace le contenu pour qu'il soit à la racine du futur site
-          # wget --no-host-directories aurait dû le faire, mais on sécurise ici :
-          cp -r _temp_mirror/. site/
-          rm -rf _temp_mirror
-
-      - name: Text Processing (Rappeur & MutationObserver)
+      # 4. Correction Orthographe (Rappeur) + Injection Script
+      - name: Text replacement & Injection
         shell: python
         run: |
           import os, re
           from bs4 import BeautifulSoup
 
-          for root, dirs, files in os.walk("site"):
-              for file in files:
-                  path = os.path.join(root, file)
-                  if file.lower().endswith(('.html', '.htm', '.js', '.json', '.txt', '.css')):
-                      try:
-                          with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                              content = f.read()
+          # Script MutationObserver pour les contenus chargés en JS
+          INJECTION = """<script>
+          (function(){
+            function fix(node){
+              if(node.nodeType===3){
+                node.nodeValue=node.nodeValue.replace(/Chanteur/gi,"Rappeur");
+              } else {
+                node.childNodes.forEach(fix);
+              }
+            }
+            new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(fix))).observe(document, {childList:true, subtree:true});
+            window.addEventListener('DOMContentLoaded', () => fix(document.body));
+          })();
+          </script>"""
 
-                          # Remplacement "Chanteur" -> "Rappeur" (Correction orthographe)
+          for root, _, files in os.walk("site"):
+              for f in files:
+                  path = os.path.join(root, f)
+                  if f.lower().endswith(('.html', '.htm', '.js', '.css', '.txt', '.json')):
+                      try:
+                          with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
+                              content = fh.read()
+                          
+                          # Correction orthographique globale
                           content = re.sub(r'Chanteur', 'Rappeur', content)
                           content = re.sub(r'chanteur', 'rappeur', content)
+                          
+                          # Injection dans le HTML
+                          if f.lower().endswith(('.html', '.htm')) and "</body>" in content.lower():
+                              content = content.replace("</body>", INJECTION + "</body>")
+                          
+                          with open(path, 'w', encoding='utf-8') as fh:
+                              fh.write(content)
+                      except: pass
 
-                          if file.lower().endswith(('.html', '.htm')):
-                              soup = BeautifulSoup(content, 'lxml')
-                              
-                              # On force les liens en relatifs pour éviter les 404 sur les sous-pages
-                              # Et on injecte le script pour le contenu dynamique
-                              script = soup.new_tag("script")
-                              script.string = """
-                                (function() {
-                                  const fix = (n) => {
-                                    if (n.nodeType === 3) n.nodeValue = n.nodeValue.replace(/Chanteur/gi, 'Rappeur');
-                                    else n.childNodes.forEach(fix);
-                                  };
-                                  new MutationObserver(m => m.forEach(r => r.addedNodes.forEach(fix))).observe(document, {childList:true, subtree:true});
-                                  window.addEventListener('DOMContentLoaded', () => fix(document.body));
-                                })();
-                              """
-                              if soup.body: soup.body.append(script)
-                              content = str(soup)
+      # 5. Commit des fichiers (Pour inspection)
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add site/
+          if git diff --cached --quiet; then
+            echo "Rien à committer"
+          else
+            git commit -m "MAJ Mirror : $(date -u)"
+            git push origin main
+          fi
 
-                          with open(path, 'w', encoding='utf-8') as f:
-                              f.write(content)
-                      except Exception as e:
-                          print(f"Erreur: {e}")
-
-      - name: Upload Pages Artifact
+      # 6. Déploiement sur GitHub Pages
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - name: Deploy to GitHub Pages
-        id: deploy
+      - name: Deploy
         uses: actions/deploy-pages@v4
