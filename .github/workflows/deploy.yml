@@ -1,4 +1,4 @@
-name: Générer et déployer la page modifiée
+name: Miroir complet et déploiement horaire
 
 on:
   push:
@@ -12,48 +12,269 @@ permissions:
   pages: write
   id-token: write
 
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      # 1. Télécharger le site complet (HTML + CSS + JS + images + liens)
-      - name: Télécharger le site complet avec wget
+
+      # ─────────────────────────────────────────────────────
+      # 1. PRÉPARER L'ENVIRONNEMENT
+      # ─────────────────────────────────────────────────────
+      - name: Installer les outils nécessaires
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            wget \
+            curl \
+            python3 \
+            python3-pip \
+            sed \
+            gawk \
+            findutils \
+            ca-certificates \
+            openssl \
+            libssl-dev \
+            unzip \
+            html-xml-utils
+          pip3 install --quiet beautifulsoup4 lxml requests
+          echo "✅ Outils installés"
+
+      # ─────────────────────────────────────────────────────
+      # 2. TÉLÉCHARGER LE SITE COMPLET AVEC WGET
+      # ─────────────────────────────────────────────────────
+      - name: Télécharger le site complet (wget mirror)
+        run: |
+          TARGET="https://www.saintjosephdescarmes.com"
+          mkdir -p _raw _site
+
           wget \
             --mirror \
             --convert-links \
+            --convert-file-only \
             --adjust-extension \
             --page-requisites \
             --no-parent \
             --no-check-certificate \
+            --recursive \
+            --level=5 \
+            --wait=0.5 \
+            --random-wait \
+            --limit-rate=2m \
+            --tries=5 \
+            --retry-connrefused \
+            --timeout=30 \
+            --read-timeout=30 \
+            --dns-timeout=15 \
+            --connect-timeout=15 \
+            --keep-session-cookies \
+            --save-cookies _raw/cookies.txt \
+            --load-cookies _raw/cookies.txt \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" \
+            --header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8" \
+            --header="Accept-Language: fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7" \
+            --header="Accept-Encoding: gzip, deflate, br" \
+            --header="DNT: 1" \
+            --header="Connection: keep-alive" \
+            --header="Upgrade-Insecure-Requests: 1" \
+            --compression=auto \
+            --span-hosts \
+            --domains="saintjosephdescarmes.com,www.saintjosephdescarmes.com" \
+            --reject="*.zip,*.tar.gz,*.pdf,*.exe,*.dmg" \
+            --exclude-domains="google.com,facebook.com,twitter.com,doubleclick.net,analytics.google.com" \
             --directory-prefix=_raw \
-            --quiet \
-            https://www.saintjosephdescarmes.com
+            --no-verbose \
+            --server-response \
+            --progress=dot:giga \
+            "$TARGET" 2>&1 | tail -20 || true
 
-          # Déplacer les fichiers dans _site/
-          mkdir -p _site
-          cp -r _raw/www.saintjosephdescarmes.com/. _site/
+          echo "✅ Téléchargement terminé"
+          ls _raw/
 
-          echo "✅ Site téléchargé"
+      # ─────────────────────────────────────────────────────
+      # 3. ORGANISER LES FICHIERS DANS _site/
+      # ─────────────────────────────────────────────────────
+      - name: Organiser les fichiers téléchargés
+        run: |
+          DOMAIN="www.saintjosephdescarmes.com"
+
+          if [ -d "_raw/$DOMAIN" ]; then
+            cp -r "_raw/$DOMAIN/." _site/
+            echo "✅ Fichiers copiés depuis _raw/$DOMAIN"
+          else
+            echo "⚠️ Dossier $DOMAIN non trouvé, cherche alternative..."
+            find _raw -mindepth 1 -maxdepth 1 -type d | head -1 | xargs -I{} cp -r {}/ _site/
+          fi
+
+          # S'assurer qu'un index.html existe à la racine
+          if [ ! -f "_site/index.html" ]; then
+            echo "⚠️ Pas d'index.html à la racine – création d'un fallback"
+            cat > _site/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="fr"><head><meta charset="UTF-8">
+          <title>Saint-Joseph des Carmes</title>
+          <style>html,body{height:100%;margin:0;}iframe{width:100vw;height:100vh;border:none;}</style>
+          </head><body>
+          <iframe src="https://www.saintjosephdescarmes.com"></iframe>
+          </body></html>
+          EOF
+          fi
+
+          echo "📂 Contenu de _site :"
+          find _site -type f | head -40
+
+      # ─────────────────────────────────────────────────────
+      # 4. RÉÉCRIRE LES URLS ABSOLUES → RELATIVES
+      # ─────────────────────────────────────────────────────
+      - name: Réécrire les URLs absolues en relatives (Python)
+        run: |
+          python3 << 'PYEOF'
+          import os, re
+
+          DOMAIN = "https://www.saintjosephdescarmes.com"
+          DOMAIN_NO_PROTO = "www.saintjosephdescarmes.com"
+          SITE_DIR = "_site"
+
+          html_files = []
+          for root, dirs, files in os.walk(SITE_DIR):
+              for f in files:
+                  if f.endswith((".html", ".htm", ".css", ".js")):
+                      html_files.append(os.path.join(root, f))
+
+          for fpath in html_files:
+              try:
+                  with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                      content = f.read()
+                  original = content
+
+                  # Supprimer les références absolues au domaine d'origine
+                  content = content.replace(f"https://{DOMAIN_NO_PROTO}/", "/")
+                  content = content.replace(f"http://{DOMAIN_NO_PROTO}/", "/")
+                  content = content.replace(f"//{DOMAIN_NO_PROTO}/", "/")
+
+                  if content != original:
+                      with open(fpath, "w", encoding="utf-8") as f:
+                          f.write(content)
+                      print(f"🔗 URLs réécrites : {fpath}")
+              except Exception as e:
+                  print(f"⚠️ Erreur sur {fpath} : {e}")
+
+          print("✅ Réécriture des URLs terminée")
+          PYEOF
+
+      # ─────────────────────────────────────────────────────
+      # 5. REMPLACER LE TEXTE DANS TOUS LES FICHIERS
+      # ─────────────────────────────────────────────────────
+      - name: Remplacer le texte (Chanteurs → Rapeurs)
+        run: |
+          echo "🔄 Application des remplacements de texte..."
+
+          # Remplacement dans les fichiers HTML
+          find _site -type f -name "*.html" | while read f; do
+            sed -i 's/Chanteurs/Rapeurs/gi' "$f"
+          done
+
+          # Remplacement dans les fichiers JS (textes injectés dynamiquement)
+          find _site -type f -name "*.js" | while read f; do
+            sed -i 's/Chanteurs/Rapeurs/gi' "$f"
+          done
+
+          # Remplacement dans les fichiers CSS (si labels dans du CSS)
+          find _site -type f -name "*.css" | while read f; do
+            sed -i 's/Chanteurs/Rapeurs/gi' "$f"
+          done
+
+          echo "✅ Remplacement terminé"
+
+      # ─────────────────────────────────────────────────────
+      # 6. INJECTER UN SCRIPT JS POUR LES CONTENUS DYNAMIQUES
+      # ─────────────────────────────────────────────────────
+      - name: Injecter le script de remplacement dynamique dans les HTML
+        run: |
+          SCRIPT='<script>
+          (function() {
+            function replaceText(node) {
+              if (node.nodeType === Node.TEXT_NODE) {
+                if (node.nodeValue.includes("Chanteurs")) {
+                  node.nodeValue = node.nodeValue.replace(/Chanteurs/gi, "Rapeurs");
+                }
+              } else {
+                node.childNodes.forEach(replaceText);
+              }
+            }
+            // Remplace au chargement
+            document.addEventListener("DOMContentLoaded", function() {
+              replaceText(document.body);
+            });
+            // Observe les mutations DOM (contenus chargés dynamiquement)
+            var observer = new MutationObserver(function(mutations) {
+              mutations.forEach(function(m) {
+                m.addedNodes.forEach(replaceText);
+              });
+            });
+            observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true
+            });
+          })();
+          </script>'
+
+          find _site -type f -name "*.html" | while read f; do
+            if ! grep -q "replaceText" "$f"; then
+              sed -i "s|</body>|${SCRIPT}</body>|I" "$f"
+            fi
+          done
+
+          echo "✅ Script dynamique injecté"
+
+      # ─────────────────────────────────────────────────────
+      # 7. VÉRIFICATIONS QUALITÉ
+      # ─────────────────────────────────────────────────────
+      - name: Vérification du résultat
+        run: |
+          echo "📊 Statistiques :"
+          echo "  Fichiers HTML   : $(find _site -name '*.html' | wc -l)"
+          echo "  Fichiers CSS    : $(find _site -name '*.css'  | wc -l)"
+          echo "  Fichiers JS     : $(find _site -name '*.js'   | wc -l)"
+          echo "  Images          : $(find _site -name '*.jpg' -o -name '*.png' -o -name '*.svg' -o -name '*.webp' | wc -l)"
+          echo "  Taille totale   : $(du -sh _site | cut -f1)"
+          echo ""
+          echo "🔍 Vérification remplacement dans index.html :"
+          grep -i "Rapeurs" _site/index.html && echo "✅ Remplacement présent" || echo "⚠️ Remplacement absent dans index.html"
+          echo ""
+          echo "📄 Fichiers à la racine :"
           ls _site/
 
-      # 2. Remplacer "Chanteurs" par "Rapeurs" dans tous les fichiers HTML
-      - name: Appliquer les modifications de texte
-        run: |
-          find _site -name "*.html" -exec sed -i 's/Chanteurs/Rapeurs/gi' {} +
-          echo "✅ Texte remplacé dans tous les fichiers HTML"
-
-      # 3. Préparer l'artefact pour GitHub Pages
+      # ─────────────────────────────────────────────────────
+      # 8. PRÉPARER ET DÉPLOYER SUR GITHUB PAGES
+      # ─────────────────────────────────────────────────────
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
-      # 4. Déployer sur GitHub Pages
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # ─────────────────────────────────────────────────────
+      # 9. RÉSUMÉ FINAL
+      # ─────────────────────────────────────────────────────
+      - name: Résumé du déploiement
+        if: always()
+        run: |
+          echo "============================================"
+          echo "  DÉPLOIEMENT TERMINÉ"
+          echo "  URL : ${{ steps.deployment.outputs.page_url }}"
+          echo "  Heure UTC : $(date -u)"
+          echo "  Prochain déploiement : dans 1 heure"
+          echo "============================================"
