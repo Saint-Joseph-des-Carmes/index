@@ -1,4 +1,4 @@
-name: Mirror Pro Final
+name: Mirror Complet - Correction Finale 404
 
 on:
   push:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy: # Nom du job simplifié
+  build-and-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -25,13 +25,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Dependencies
         run: pip3 install beautifulsoup4 lxml
 
-      - name: Mirroring (Wget Pro)
+      - name: Mirroring (Anti-404 Config)
         run: |
-          rm -rf site && mkdir site
+          rm -rf site
+          mkdir -p site
+          # -nH : supprime le dossier du nom de domaine
+          # --no-parent : ne remonte pas au dessus du site
           wget \
             --mirror \
             --page-requisites \
@@ -40,17 +45,16 @@ jobs:
             --no-parent \
             --no-host-directories \
             --directory-prefix=site \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36" \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Python Text Fix (Rappeur)
+      - name: Python Processing (Relative Paths & Rappeur)
         shell: python
         run: |
-          import os
+          import os, re
           from bs4 import BeautifulSoup
-          
-          # On définit le script de remplacement dynamique (MutationObserver)
-          # Note : "Rappeur" avec 2 'p' pour la correction orthographique
+
+          # Script MutationObserver (Correction orthographe : Rappeur)
           js_fix = """
           <script>
           (function(){
@@ -67,15 +71,22 @@ jobs:
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
-                  if f.lower().endswith(('.html', '.htm', '.js', '.css')):
+                  if f.lower().endswith(('.html', '.htm', '.js', '.css', '.json')):
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                               content = file.read()
                           
-                          # Remplacement texte brut
-                          content = content.replace("Chanteur", "Rappeur").replace("chanteur", "rappeur")
+                          # 1. Remplacement texte (Chanteur -> Rappeur)
+                          content = re.sub(r'Chanteur', 'Rappeur', content)
+                          content = re.sub(r'chanteur', 'rappeur', content)
+
+                          # 2. Correction des URLs ABSOLUES en RELATIVES (Crucial pour éviter 404)
+                          # On remplace les src="/... et href="/... par src="./... et href="./...
+                          if f.lower().endswith(('.html', '.htm', '.css')):
+                              content = re.sub(r'href="/', 'href="./', content)
+                              content = re.sub(r'src="/', 'src="./', content)
                           
-                          # Injection dans le HTML
+                          # 3. Injection JS dans le HTML
                           if f.lower().endswith(('.html', '.htm')) and "</body>" in content:
                               content = content.replace("</body>", js_fix + "</body>")
                           
@@ -83,18 +94,22 @@ jobs:
                               file.write(content)
                       except: pass
 
-      - name: Commit & Push (Pour inspection)
+      - name: Commit site/ folder
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add site/
-          git commit -m "Sync Mirror $(date)" || echo "No changes"
-          git push origin main || echo "Push skipped"
+          if git diff --cached --quiet; then
+            echo "Pas de changements"
+          else
+            git commit -m "Mirror update $(date)"
+            git push origin main
+          fi
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: site # On déploie directement le contenu de site/
 
       - name: Deploy to GitHub Pages
         id: deployment
