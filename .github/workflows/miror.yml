@@ -24,10 +24,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ÉTAPE MANQUANTE AJOUTÉE ICI : On installe bs4 et lxml
+      - name: Install Dependencies
+        run: pip3 install beautifulsoup4 lxml
+
       - name: Mirroring (Wget Sécurisé)
         run: |
           rm -rf site && mkdir site
-          # Ajout de "-e robots=off" pour s'assurer que les fichiers JS sont bien téléchargés
           wget \
             --mirror \
             --page-requisites \
