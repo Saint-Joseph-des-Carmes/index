@@ -1,279 +1,96 @@
-# ==============================================================
-# GitHub Actions workflow
-# - télécharge **tout** le site (HTML, CSS, JS, images, fonts …)
-# - réécrit les URLs absolues en URLs relatives
-# - remplace partout le mot « Chanteur » par « Rapeur »
-# - injecte un MutationObserver pour gérer les ajouts DOM dynamiques
-# - commit le dossier complet `site/` dans le dépôt (pour éventuelle inspection)
-# - publie le contenu sur GitHub Pages
-# - s’exécute à chaque push et toutes les heures
-# ==============================================================
+name: Mirror Pro + Fix URLs
 
-name: Mirror complet + déploiement horaire
-
-# ----------------------------------------------------------------
-# Triggers
-# ----------------------------------------------------------------
 on:
   push:
-    branches: [main]          # déploiement immédiat sur chaque push
+    branches: [main]
   schedule:
-    - cron: '0 * * * *'      # et chaque heure (UTC)
-  workflow_dispatch: {}      # lancement manuel depuis l’UI
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
-# ----------------------------------------------------------------
-# Permissions (nécessaires pour pousser dans le repo et publier)
-# ----------------------------------------------------------------
 permissions:
-  contents: write    # push du dossier site/ dans le dépôt
+  contents: write
   pages: write
   id-token: write
 
-# ----------------------------------------------------------------
-# Concurrence (annule les runs précédents si un nouveau démarre)
-# ----------------------------------------------------------------
 concurrency:
   group: github-pages
   cancel-in-progress: true
 
-# ----------------------------------------------------------------
-# Job unique
-# ----------------------------------------------------------------
 jobs:
   mirror-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
-
     steps:
-
-      # ------------------------------------------------------------
-      # 1️⃣ Checkout du dépôt (pour pouvoir ajouter le dossier site/)
-      # ------------------------------------------------------------
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      # ------------------------------------------------------------
-      # 2️⃣ Installer les outils nécessaires (wget, python + bs4)
-      # ------------------------------------------------------------
-      - name: Install tools
+      - name: Install Tools
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq wget curl python3 python3-pip
-          pip3 install --quiet beautifulsoup4 lxml requests
+          sudo apt-get update
+          sudo apt-get install -y wget
+          pip3 install beautifulsoup4 lxml
 
-      # ------------------------------------------------------------
-      # 3️⃣ Télécharger le site complet avec wget
-      # ------------------------------------------------------------
-      - name: Mirror the whole site with wget
+      - name: Mirror with Better Logic
         run: |
-          # Nettoyer le dossier précédent
-          rm -rf _mirror
-          mkdir -p _mirror
-
-          # wget avec un maximum de paramètres pour récupérer tout
+          rm -rf site && mkdir site
+          # On limite la profondeur pour éviter de télécharger tout le web
+          # --adjust-extension rajoute .html si besoin pour GitHub Pages
           wget \
-            --mirror \
             --recursive \
-            --level=inf \
+            --level=2 \
             --page-requisites \
-            --convert-links \
             --adjust-extension \
+            --convert-links \
             --no-parent \
-            --no-check-certificate \
-            --no-verbose \
-            --retry-connrefused \
-            --wait=0.3 \
-            --random-wait \
-            --timeout=30 \
-            --tries=5 \
-            --span-hosts \
-            --domains="saintjosephdescarmes.com,www.saintjosephdescarmes.com" \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36" \
-            --header="Accept-Language: fr-FR,fr;q=0.9" \
-            --header="Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" \
-            --directory-prefix=_mirror \
-            https://www.saintjosephdescarmes.com 2>&1 | tail -30 || true
+            --no-host-directories \
+            --directory-prefix=site \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            https://www.saintjosephdescarmes.com || true
 
-          echo "✅ Mirroring terminé"
-          ls -R _mirror | head -20
-
-      # ------------------------------------------------------------
-      # 4️⃣ Organiser les fichiers dans le dossier `site/`
-      # ------------------------------------------------------------
-      - name: Prepare site/ directory
+      - name: Python Post-Processing (Hard Fix)
+        shell: python
         run: |
-          rm -rf site
-          mkdir -p site
-
-          # Le dossier créé par wget peut varier selon le nom de domaine
-          if [ -d "_mirror/www.saintjosephdescarmes.com" ]; then
-            cp -r _mirror/www.saintjosephdescarmes.com/. site/
-          elif [ -d "_mirror/saintjosephdescarmes.com" ]; then
-            cp -r _mirror/saintjosephdescarmes.com/. site/
-          else
-            echo "❌ Dossier de miroir introuvable"
-            exit 1
-          fi
-
-          echo "📂 Contenu de site/ :"
-          find site -type f | wc -l
-
-      # ------------------------------------------------------------
-      # 5️⃣ Réécrire les URLs absolues → relatives (Python)
-      # ------------------------------------------------------------
-      - name: Rewrite absolute URLs to relative paths
-        run: |
-          python3 << 'EOF'
-          import os, re
-
-          # Toutes les variantes d'URL que wget peut avoir injectées
-          DOMAIN_VARIANTS = [
-              "https://www.saintjosephdescarmes.com",
-              "http://www.saintjosephdescarmes.com",
-              "https://saintjosephdescarmes.com",
-              "http://saintjosephdescarmes.com",
-              "//www.saintjosephdescarmes.com",
-              "//saintjosephdescarmes.com"
-          ]
-
-          # Extensions de fichiers où les URLs peuvent apparaître
-          EXT = (".html", ".htm", ".css", ".js", ".json", ".xml", ".svg", ".txt")
-
-          def rewrite(content):
-              for d in DOMAIN_VARIANTS:
-                  content = content.replace(d + "/", "/")
-                  content = content.replace(d, "/")
-              return content
-
-          modified = 0
-          for root, _, files in os.walk("site"):
-              for f in files:
-                  if f.endswith(EXT):
-                      path = os.path.join(root, f)
-                      try:
-                          with open(path, "r", encoding="utf-8", errors="replace") as fh:
-                              src = fh.read()
-                          dst = rewrite(src)
-                          if src != dst:
-                              with open(path, "w", encoding="utf-8") as fh:
-                                  fh.write(dst)
-                              modified += 1
-                      except Exception as e:
-                          print(f"Error on {path}: {e}")
-
-          print(f"✅ URLs réécrites dans {modified} fichiers")
-          EOF
-
-      # ------------------------------------------------------------
-      # 6️⃣ Remplacer le mot "Chanteur" par "Rapeur" partout
-      # ------------------------------------------------------------
-      - name: Replace "Chanteur" → "Rapeur" in all text files
-        run: |
-          find site -type f \( -name "*.html" -o -name "*.htm" -o -name "*.js" -o -name "*.css" -o -name "*.json" -o -name "*.txt" \) \
-            -exec sed -i 's/Chanteur/Rapeur/gi' {} +
-          echo "✅ Remplacement texte terminé"
-
-      # ------------------------------------------------------------
-      # 7️⃣ Injecter un MutationObserver pour les ajouts DOM dynamiques
-      # ------------------------------------------------------------
-      - name: Inject MutationObserver into every HTML page
-        run: |
-          python3 << 'EOF'
           import os
+          from bs4 import BeautifulSoup
 
-          # Script qui replace le texte même lorsqu'il est ajouté dynamiquement
-          SCRIPT = """<script>
-          (function(){
-            function walk(node){
-              if(node.nodeType===3){
-                node.nodeValue=node.nodeValue.replace(/Chanteur/gi,"Rapeur");
-              }else{
-                for(var i=0;i<node.childNodes.length;i++) walk(node.childNodes[i]);
-              }
-            }
-            document.addEventListener("DOMContentLoaded",function(){walk(document.body);});
-            new MutationObserver(function(muts){
-              muts.forEach(function(m){m.addedNodes.forEach(walk);});
-            }).observe(document.documentElement,{childList:true,subtree:true});
-          })();
-          </script>"""
+          # 1. Remplacement texte et 2. Correction URLs
+          for root, dirs, files in os.walk("site"):
+              for file in files:
+                  if file.endswith(".html"):
+                      path = os.path.join(root, file)
+                      with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                          soup = BeautifulSoup(f.read(), 'lxml')
+                      
+                      # Remplacement du texte
+                      for text_node in soup.find_all(string=True):
+                          if "Chanteur" in text_node:
+                              new_text = text_node.replace("Chanteur", "Rapeur")
+                              text_node.replace_with(new_text)
 
-          count=0
-          for root,_,files in os.walk("site"):
-              for f in files:
-                  if f.lower().endswith(('.html','.htm')):
-                      path=os.path.join(root,f)
-                      try:
-                          with open(path,'r',encoding='utf-8',errors='replace') as fh:
-                              content=fh.read()
-                          if "</body>" in content.lower():
-                              # insérer avant la balise de fermeture du body
-                              new_content=content.replace("</body>", SCRIPT+"</body>",1)
-                              with open(path,'w',encoding='utf-8') as fh:
-                                  fh.write(new_content)
-                              count+=1
-                      except Exception as e:
-                          print(f"Error {path}: {e}")
-          print(f"✅ MutationObserver injecté dans {count} fichiers HTML")
-          EOF
+                      # Injection du script de MutationObserver amélioré
+                      new_script = soup.new_tag("script")
+                      new_script.string = """
+                        const observer = new MutationObserver((mutations) => {
+                          mutations.forEach((mutation) => {
+                            mutation.addedNodes.forEach((node) => {
+                              if (node.nodeType === 3) {
+                                node.nodeValue = node.nodeValue.replace(/Chanteur/gi, 'Rapeur');
+                              }
+                            });
+                          });
+                        });
+                        observer.observe(document.body, { childList: true, subtree: true });
+                      """
+                      if soup.body:
+                          soup.body.append(new_script)
 
-      # ------------------------------------------------------------
-      # 8️⃣ Statistiques du site généré (facultatif, pour le log)
-      # ------------------------------------------------------------
-      - name: Show site statistics
-        run: |
-          echo "===== STATISTIQUES ====="
-          echo "HTML  : $(find site -name '*.html' -o -name '*.htm' | wc -l)"
-          echo "CSS   : $(find site -name '*.css' | wc -l)"
-          echo "JS    : $(find site -name '*.js' | wc -l)"
-          echo "Images: $(find site -type f \( -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.svg' -o -name '*.webp' -o -name '*.gif' \) | wc -l)"
-          echo "Fonts : $(find site -type f \( -name '*.woff' -o -name '*.woff2' -o -name '*.ttf' -o -name '*.otf' \) | wc -l)"
-          echo "Total files : $(find site -type f | wc -l)"
-          echo "Size       : $(du -sh site | cut -f1)"
-          echo "========================"
+                      with open(path, 'w', encoding='utf-8') as f:
+                          f.write(str(soup))
 
-      # ------------------------------------------------------------
-      # 9️⃣ Commit le dossier site/ dans le dépôt (pour que vous puissiez le visualiser)
-      # ------------------------------------------------------------
-      - name: Commit mirrored site to repository
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add site/
-          # Si aucun changement, on ne crée pas de commit
-          if git diff --cached --quiet; then
-            echo "⚙️ Aucun changement à committer"
-          else
-            git commit -m "Mirror updated $(date -u '+%Y-%m-%d %H:%M UTC')"
-            git push origin main
-          fi
-
-      # ------------------------------------------------------------
-      # 10️⃣ Upload the site/ folder as a Pages artifact
-      # ------------------------------------------------------------
-      - name: Upload Pages artifact
+      - name: Upload to GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      # ------------------------------------------------------------
-      # 11️⃣ Deploy to GitHub Pages
-      # ------------------------------------------------------------
-      - name: Deploy to GitHub Pages
+      - name: Deploy
         id: deploy
         uses: actions/deploy-pages@v4
-
-      # ------------------------------------------------------------
-      # 12️⃣ Résumé final
-      # ------------------------------------------------------------
-      - name: Summary
-        if: always()
-        run: |
-          echo "🚀 Site déployé : ${{ steps.deploy.outputs.page_url }}"
-          echo "🕒 Prochain run programmé dans 1 heure"
