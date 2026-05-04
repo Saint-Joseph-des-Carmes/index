@@ -1,9 +1,9 @@
-name: Build & Deploy to GitHub Pages
+name: Build & Deploy
 
 on:
   push:
-    branches: [main]          # chaque push déclenche le build
-  workflow_dispatch: {}      # lancement manuel possible
+    branches: [main]
+  workflow_dispatch: {}
 
 jobs:
   build:
@@ -18,17 +18,12 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Install deps
+      # ----> Installation fiable grâce au lock‑file
+      - name: Install dependencies (ci)
         run: npm ci
-        working-directory: src
 
-      - name: Build proxy page
-        run: node build-proxy.js
-        working-directory: src
+      # (facultatif) tests, lint, etc.
+      - name: Run tests
+        run: npm test
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./public
-          force_orphan: true
+      # Déploiement… (Vercel, Pages, etc.)
