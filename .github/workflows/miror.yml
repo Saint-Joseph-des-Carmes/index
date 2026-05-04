@@ -1,14 +1,11 @@
-name: Mirror Horaire - URLs et JS Sécurisés
+name: Mirror Final - Animation Fix
 
 on:
   push:
     branches: [main]
-  # ------------------------------------------------------------
-  # AJOUT : Déclenchement automatique toutes les heures (UTC)
-  # ------------------------------------------------------------
   schedule:
     - cron: '0 * * * *'
-  workflow_dispatch: # Permet de lancer manuellement si besoin
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,10 +26,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: pip3 install beautifulsoup4 lxml
-
-      - name: Mirroring (Wget Sécurisé)
+      - name: Mirroring
         run: |
           rm -rf site && mkdir site
           wget \
@@ -47,28 +41,33 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Remplacement Chirurgical (Texte uniquement)
+      - name: Remplacement par Injection (Zéro modification HTML direct)
         shell: python
         run: |
           import os, re
-          from bs4 import BeautifulSoup, Comment
 
-          js_fix = """
+          # Ce script est beaucoup plus robuste : il attend que la page et ses scripts soient prêts
+          # Il scanne tout, même ce qui apparaît après une animation
+          js_injector = """
           <script>
           (function(){
-            const fix = (n) => {
-              if(n.nodeName === 'SCRIPT' || n.nodeName === 'STYLE') return;
-              if(n.nodeType === 3) {
-                n.nodeValue = n.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
-              } else if (n.childNodes) {
-                n.childNodes.forEach(fix);
+            const replaceText = (node) => {
+              if (node.nodeType === 3) {
+                const newText = node.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
+                if (newText !== node.nodeValue) node.nodeValue = newText;
+              } else if (node.nodeName !== 'SCRIPT' && node.nodeName !== 'STYLE') {
+                node.childNodes.forEach(replaceText);
               }
             };
-            const observer = new MutationObserver(m => m.forEach(r => r.addedNodes.forEach(fix)));
-            window.addEventListener('DOMContentLoaded', () => {
-              fix(document.body);
-              observer.observe(document.body, {childList:true, subtree:true});
+            
+            // 1. Remplace au chargement
+            window.addEventListener('load', () => replaceText(document.body));
+            
+            // 2. Remplace dès qu'une animation ajoute du texte (ex: ton texte qui apparaît après 2s)
+            const observer = new MutationObserver(mutations => {
+              mutations.forEach(m => m.addedNodes.forEach(replaceText));
             });
+            observer.observe(document.documentElement, {childList: true, subtree: true});
           })();
           </script>
           """
@@ -79,22 +78,15 @@ jobs:
                   if f.lower().endswith(('.html', '.htm')):
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
-                              soup = BeautifulSoup(file.read(), 'lxml')
+                              content = file.read()
                           
-                          for text_node in soup.find_all(string=True):
-                              if text_node.parent.name not in ['script', 'style'] and not isinstance(text_node, Comment):
-                                  new_text = text_node.replace('Chanteur', 'Rappeur').replace('chanteur', 'rappeur')
-                                  if new_text != text_node:
-                                      text_node.replace_with(new_text)
-
-                          content = str(soup)
+                          # On injecte le script juste avant la fin du body
+                          # On ne modifie RIEN d'autre dans le HTML original
                           if "</body>" in content.lower():
-                              content = re.sub(r'(?i)</body>', f'{js_fix}</body>', content)
-                          
-                          with open(path, 'w', encoding='utf-8') as file:
-                              file.write(content)
-                      except Exception as e:
-                          print(f"Erreur sur {path} : {e}")
+                              new_content = re.sub(r'(?i)</body>', f'{js_injector}</body>', content)
+                              with open(path, 'w', encoding='utf-8') as file:
+                                  file.write(new_content)
+                      except: pass
 
       - name: Fix Jekyll
         run: touch site/.nojekyll
