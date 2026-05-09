@@ -1,11 +1,12 @@
-name: Mirroring et Déploiement du Site
+name: Mirror Quotidien - Animation & Text Fix
 
 on:
   push:
     branches: [main]
   schedule:
-    - cron: '0 0 * * *' # Exécution tous les jours à minuit (UTC)
-  workflow_dispatch:
+    # Déclenchement automatique une fois par jour à minuit UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Permet de lancer manuellement si besoin
 
 permissions:
   contents: write
@@ -23,91 +24,80 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout du code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Mirroring des fichiers HTML uniquement
+      - name: Mirroring (Copie Conforme)
         run: |
-          mkdir -p site
+          rm -rf site && mkdir site
+          # On garde les fichiers intacts pour ne pas casser le JS original
           wget \
-            --recursive \
-            --level=inf \
+            --mirror \
             --page-requisites \
             --adjust-extension \
-            --convert-links \
-            --span-hosts \
-            --restrict-file-names=windows \
-            --domains=www.saintjosephdescarmes.com \
             --no-parent \
-            --directory-prefix=site \
-            --accept-regex '(?i)\.(html|htm)$' \
+            --no-host-directories \
             -e robots=off \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36" \
+            --directory-prefix=site \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Remplacement du texte et des URLs dans les fichiers HTML
+      - name: Injection du Correcteur Dynamique
         shell: python
         run: |
-          import os
-          import re
+          import os, re
 
-          # --- CONFIGURATION DES REMPLACEMENTS ---
-          # Ajoutez ici les URLs des images à remplacer.
-          # Format: "URL_originale": "URL_de_remplacement"
-          URL_REPLACEMENTS = {
-              # "https://www.exemple.com/image1.jpg": "https://www.autre-site.com/nouvelle_image.png",
-              # "https://www.exemple.com/logo.svg": "https://mon-cdn.com/logo_modifie.svg"
-          }
+          # Ce script injecté surveille les changements du DOM (animations) 
+          # et remplace le texte sans casser les scripts d'origine.
+          js_injector = """
+          <script>
+          (function(){
+            const replaceText = (node) => {
+              if (node.nodeType === 3) {
+                const newText = node.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
+                if (newText !== node.nodeValue) node.nodeValue = newText;
+              } else if (node.nodeName !== 'SCRIPT' && node.nodeName !== 'STYLE') {
+                node.childNodes.forEach(replaceText);
+              }
+            };
+            
+            // Correction au chargement
+            window.addEventListener('load', () => replaceText(document.body));
+            
+            // Correction en temps réel pour les animations (MutationObserver)
+            const observer = new MutationObserver(mutations => {
+              mutations.forEach(m => m.addedNodes.forEach(replaceText));
+              // Surveille aussi les changements de texte dans les noeuds existants
+              if (mutations.some(m => m.type === 'characterData')) replaceText(document.body);
+            });
+            observer.observe(document.documentElement, {childList: true, subtree: true, characterData: true});
+          })();
+          </script>
+          """
 
-          # Mots à remplacer dans tout le site
-          TEXT_REPLACEMENTS = {
-              "Chanteur": "Rappeur",
-              "chanteur": "rappeur"
-          }
-          # --- FIN DE LA CONFIGURATION ---
-
-          site_directory = "site"
-
-          for root, _, files in os.walk(site_directory):
-              for file_name in files:
-                  if file_name.lower().endswith(('.html', '.htm')):
-                      file_path = os.path.join(root, file_name)
+          for root, _, files in os.walk("site"):
+              for f in files:
+                  path = os.path.join(root, f)
+                  if f.lower().endswith(('.html', '.htm')):
                       try:
-                          with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                              content = f.read()
-
-                          # 1. Remplacement de texte simple
-                          for old, new in TEXT_REPLACEMENTS.items():
-                              content = content.replace(old, new)
-
-                          # 2. Remplacement des URLs configurées
-                          for old_url, new_url in URL_REPLACEMENTS.items():
-                              content = content.replace(old_url, new_url)
+                          with open(path, 'r', encoding='utf-8', errors='ignore') as file:
+                              content = file.read()
                           
-                          # 3. Conversion des liens relatifs en liens absolus
-                          # Convertit src="/path/image.jpg" en src="https://www.saintjosephdescarmes.com/path/image.jpg"
-                          # Fait de même pour href, etc.
-                          # Cela garantit que toutes les ressources non-téléchargées (JS, CSS, images) pointent vers le site d'origine.
-                          content = re.sub(r'(?i)(href|src|action|data-src|data-bg)\s*=\s*["\']\/([^/][^"\']*)["\']',
-                                           r'\1="https://www.saintjosephdescarmes.com/\2"',
-                                           content)
+                          # Injection propre avant la fermeture du body
+                          if "</body>" in content.lower():
+                              new_content = re.sub(r'(?i)</body>', f'{js_injector}</body>', content)
+                              with open(path, 'w', encoding='utf-8') as file:
+                                  file.write(new_content)
+                      except: pass
 
-                          with open(file_path, 'w', encoding='utf-8') as f:
-                              f.write(content)
-                          
-                          print(f"Fichier traité : {file_path}")
-
-                      except Exception as e:
-                          print(f"Erreur lors du traitement du fichier {file_path}: {e}")
-
-      - name: Création du fichier .nojekyll
+      - name: Fix Jekyll
         run: touch site/.nojekyll
 
-      - name: Préparation de l'artefact pour GitHub Pages
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
-      - name: Déploiement sur GitHub Pages
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
