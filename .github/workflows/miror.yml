@@ -41,52 +41,36 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Remplacement par Injection (Zéro modification HTML direct)
+      - name: Remplacement du contenu (texte et lien)
         shell: python
         run: |
-          import os, re
+          import os
 
-          # Ce script est beaucoup plus robuste : il attend que la page et ses scripts soient prêts
-          # Il scanne tout, même ce qui apparaît après une animation
-          js_injector = """
-          <script>
-          (function(){
-            const replaceText = (node) => {
-              if (node.nodeType === 3) {
-                const newText = node.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
-                if (newText !== node.nodeValue) node.nodeValue = newText;
-              } else if (node.nodeName !== 'SCRIPT' && node.nodeName !== 'STYLE') {
-                node.childNodes.forEach(replaceText);
-              }
-            };
-            
-            // 1. Remplace au chargement
-            window.addEventListener('load', () => replaceText(document.body));
-            
-            // 2. Remplace dès qu'une animation ajoute du texte (ex: ton texte qui apparaît après 2s)
-            const observer = new MutationObserver(mutations => {
-              mutations.forEach(m => m.addedNodes.forEach(replaceText));
-            });
-            observer.observe(document.documentElement, {childList: true, subtree: true});
-          })();
-          </script>
-          """
+          # URL à remplacer et nouvelle URL
+          url_originale = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg/v1/fill/w_1223,h_948,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg"
+          url_nouvelle = "blob:https://gemini.google.com/b60a22eb-e65f-4643-8cf3-fe36a54acc5a"
 
           for root, _, files in os.walk("site"):
               for f in files:
                   path = os.path.join(root, f)
-                  if f.lower().endswith(('.html', '.htm')):
+                  # On cible les fichiers HTML, mais aussi les fichiers CSS ou JS où l'URL pourrait se trouver
+                  if f.lower().endswith(('.html', '.htm', '.css', '.js')):
                       try:
                           with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                               content = file.read()
                           
-                          # On injecte le script juste avant la fin du body
-                          # On ne modifie RIEN d'autre dans le HTML original
-                          if "</body>" in content.lower():
-                              new_content = re.sub(r'(?i)</body>', f'{js_injector}</body>', content)
-                              with open(path, 'w', encoding='utf-8') as file:
-                                  file.write(new_content)
-                      except: pass
+                          # Remplacement 1: Chanteur -> Rappeur
+                          content = content.replace('Chanteur', 'Rappeur')
+                          content = content.replace('chanteur', 'rappeur')
+
+                          # Remplacement 2: URL de l'image
+                          content = content.replace(url_originale, url_nouvelle)
+                          
+                          with open(path, 'w', encoding='utf-8') as file:
+                              file.write(content)
+                      except Exception as e:
+                          print(f"Erreur lors du traitement du fichier {path}: {e}")
+                          pass
 
       - name: Fix Jekyll
         run: touch site/.nojekyll
