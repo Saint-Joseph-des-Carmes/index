@@ -34,6 +34,8 @@ jobs:
             --page-requisites \
             --adjust-extension \
             --convert-links \
+            --span-hosts \
+            --domains=www.saintjosephdescarmes.com,static.wixstatic.com \
             --no-parent \
             --no-host-directories \
             -e robots=off \
@@ -41,36 +43,78 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Remplacement du contenu (texte et lien)
+      - name: Remplacement du contenu et renommage des fichiers
         shell: python
         run: |
           import os
+          import re
 
-          # URL à remplacer et nouvelle URL
-          url_originale = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg/v1/fill/w_1223,h_948,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg"
-          url_nouvelle = "blob:https://gemini.google.com/b60a22eb-e65f-4643-8cf3-fe36a54acc5a"
+          # --- Configuration ---
+          site_dir = "site"
+          replacements = {
+              "Chanteur": "Rappeur",
+              "chanteur": "rappeur",
+              "Cœur": "Projet",
+              "cœur": "projet"
+          }
 
-          for root, _, files in os.walk("site"):
+          # --- Fonctions ---
+          def replace_content_in_file(path):
+              """Remplace le contenu textuel dans un fichier."""
+              try:
+                  with open(path, 'r', encoding='utf-8', errors='ignore') as file:
+                      content = file.read()
+                  
+                  modified = False
+                  for old, new in replacements.items():
+                      if old in content:
+                          content = content.replace(old, new)
+                          modified = True
+                  
+                  # Remplacement des URLs d'images pour pointer vers le local
+                  # Exemple: https://static.wixstatic.com/media/foo.jpg -> /media/foo.jpg
+                  # Cela rend les liens relatifs à la racine du site GitHub Pages.
+                  content = re.sub(r'https?://static\.wixstatic\.com/media/([a-zA-Z0-9_.-]+)', r'/media/\1', content)
+                  
+                  if modified or 'wixstatic' in content: # Réécrire uniquement si nécessaire
+                      with open(path, 'w', encoding='utf-8') as file:
+                          file.write(content)
+              except Exception as e:
+                  print(f"Erreur lors du traitement du fichier {path}: {e}")
+
+          def rename_files_and_dirs(root_dir):
+              """Renomme les fichiers et dossiers contenant les mots à remplacer."""
+              for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+                  # Renommer les fichiers
+                  for filename in filenames:
+                      for old, new in replacements.items():
+                          if old in filename:
+                              old_path = os.path.join(dirpath, filename)
+                              new_filename = filename.replace(old, new)
+                              new_path = os.path.join(dirpath, new_filename)
+                              print(f"Renommage fichier: {old_path} -> {new_path}")
+                              os.rename(old_path, new_path)
+                  
+                  # Renommer les dossiers
+                  for dirname in dirnames:
+                      for old, new in replacements.items():
+                          if old in dirname:
+                              old_path = os.path.join(dirpath, dirname)
+                              new_dirname = dirname.replace(old, new)
+                              new_path = os.path.join(dirpath, new_dirname)
+                              print(f"Renommage dossier: {old_path} -> {new_path}")
+                              os.rename(old_path, new_path)
+
+          # --- Exécution ---
+          # 1. Remplacement du contenu
+          for root, _, files in os.walk(site_dir):
               for f in files:
                   path = os.path.join(root, f)
-                  # On cible les fichiers HTML, mais aussi les fichiers CSS ou JS où l'URL pourrait se trouver
                   if f.lower().endswith(('.html', '.htm', '.css', '.js')):
-                      try:
-                          with open(path, 'r', encoding='utf-8', errors='ignore') as file:
-                              content = file.read()
-                          
-                          # Remplacement 1: Chanteur -> Rappeur
-                          content = content.replace('Chanteur', 'Rappeur')
-                          content = content.replace('chanteur', 'rappeur')
-
-                          # Remplacement 2: URL de l'image
-                          content = content.replace(url_originale, url_nouvelle)
-                          
-                          with open(path, 'w', encoding='utf-8') as file:
-                              file.write(content)
-                      except Exception as e:
-                          print(f"Erreur lors du traitement du fichier {path}: {e}")
-                          pass
+                      replace_content_in_file(path)
+          
+          # 2. Renommage des fichiers et dossiers (après modification des liens)
+          rename_files_and_dirs(site_dir)
 
       - name: Fix Jekyll
         run: touch site/.nojekyll
