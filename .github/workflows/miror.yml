@@ -1,4 +1,3 @@
-
 name: Mirror, Fix, and Deploy Site
 
 on:
@@ -30,15 +29,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirroring Website and Download Assets
+      - name: Mirroring Website
         run: |
-          # Nettoyage complet
           echo "Nettoyage du répertoire de travail..."
-          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name '.' -exec rm -rf {} +
-
-          # Télécharger l'image de fond de remplacement
-          echo "Téléchargement de l'image de fond personnalisée..."
-          wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
+          # On garde le fichier maître qui ne doit pas être supprimé
+          find . -maxdepth 1 -type f -not -name 'les-petits-rappeurs-force-bg.html' -delete
+          find . -maxdepth 1 -mindepth 1 -type d -not -name '.git' -not -name '.github' -exec rm -rf {} +
           
           echo "Démarrage du mirroring du site..."
           wget \
@@ -55,15 +51,22 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
       
-      - name: Process Files (Text Replace and Style Injection)
+      - name: Force Custom Background Page
+        run: |
+          # On écrase la page téléchargée avec notre version maîtrisée
+          if [ -f "les-petits-rappeurs-force-bg.html" ]; then
+            echo "Remplacement de les-petits-rappeurs.html par la version maîtrisée."
+            mv -f les-petits-rappeurs-force-bg.html les-petits-rappeurs.html
+          else
+            echo "Fichier maître non trouvé. L'opération est annulée."
+          fi
+
+      - name: Process Files for Text Replacement
         shell: python
         run: |
           import os
-          import re
           import shutil
 
-          SITE_DIR = "."
-          
           TEXT_REPLACEMENTS = {
               "Chanteur": "Rappeur",
               "chanteur": "rappeur",
@@ -71,72 +74,28 @@ jobs:
               "cœur": "projet"
           }
 
-          STYLE_BLOCK = """
-          <style id="custom-bg-style">
-              #pageBackground_ib0se {
-                  background-image: url('/petits-rappeurs.png') !important;
-                  background-size: cover !important;
-                  background-position: center center !important;
-                  background-repeat: no-repeat !important;
-                  background-color: #000000 !important;
-              }
-              [data-testid="backgroundImage"] {
-                  display: none !important;
-              }
-          </style>
-          </head>
-          """
-
-          def process_file(path):
-              try:
-                  with open(path, 'r', encoding='utf-8', errors='ignore') as file:
-                      content = file.read()
-                  
-                  original_content = content
-                  
-                  # Remplacement des textes
-                  for old, new in TEXT_REPLACEMENTS.items():
-                      content = content.replace(old, new)
-                  
-                  # Injection du style si c'est le bon fichier HTML
-                  if os.path.basename(path) == 'les-petits-rappeurs.html':
-                      if '</head>' in content and 'id="custom-bg-style"' not in content:
-                          print(f"Injection du style dans {path}")
-                          content = content.replace('</head>', STYLE_BLOCK, 1)
-
-                  if content != original_content:
-                      print(f"Mise à jour du contenu de : {path}")
-                      with open(path, 'w', encoding='utf-8') as file:
-                          file.write(content)
-              except Exception as e:
-                  print(f"Erreur lors du traitement du fichier {path}: {e}")
-
-          def rename_files(root_dir):
-              for dirpath, _, filenames in os.walk(root_dir, topdown=False):
-                  if '.git' in dirpath or '.github' in dirpath:
-                      continue
-                  for name in filenames:
-                      for old, new in TEXT_REPLACEMENTS.items():
-                          if old in name:
-                              old_path = os.path.join(dirpath, name)
-                              new_name = name.replace(old, new)
-                              new_path = os.path.join(dirpath, new_name)
-                              try:
-                                  shutil.move(old_path, new_path)
-                              except Exception as e:
-                                  print(f"Erreur de renommage sur {old_path}: {e}")
-                              break
-
-          print("--- Démarrage du traitement des fichiers ---")
-          for root, _, files in os.walk(SITE_DIR):
+          # On applique les changements de texte sur tous les fichiers pertinents
+          for root, _, files in os.walk('.'):
               if '.git' in root or '.github' in root:
                   continue
               for f in files:
                   if f.lower().endswith(('.html', '.htm', '.css', '.js')):
-                      process_file(os.path.join(root, f))
-          
-          rename_files(SITE_DIR)
-          print("--- Traitement des fichiers terminé ---")
+                      file_path = os.path.join(root, f)
+                      try:
+                          with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                              content = file.read()
+                          
+                          original_content = content
+                          for old, new in TEXT_REPLACEMENTS.items():
+                              content = content.replace(old, new)
+                          
+                          if content != original_content:
+                              with open(file_path, 'w', encoding='utf-8') as file:
+                                  file.write(content)
+                              print(f"Remplacement de texte effectué sur {file_path}")
+
+                      except Exception as e:
+                          print(f"Erreur lors du traitement de {file_path}: {e}")
 
       - name: Fix Jekyll
         run: touch .nojekyll
@@ -147,11 +106,11 @@ jobs:
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add -A
           if git diff --staged --quiet; then
-            echo "Aucun changement détecté, pas de commit nécessaire."
+            echo "Aucun changement détecté."
           else
             echo "Changements détectés, création du commit..."
-            git commit -m "BOT: Force l'arrière-plan personnalisé via injection Python" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
-            git push origin main
+            git commit -m "BOT: Force la page des rappeurs avec arrière-plan maîtrisé"
+            git push
           fi
 
       - name: Upload artifact for GitHub Pages
