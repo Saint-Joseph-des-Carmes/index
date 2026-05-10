@@ -32,14 +32,6 @@ jobs:
 
       - name: Mirroring Website and Download Assets
         run: |
-          # Nettoyage complet
-          echo "Nettoyage du répertoire de travail..."
-          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name '.' -exec rm -rf {} +
-
-          # Télécharger l'image de fond de remplacement
-          echo "Téléchargement de l'image de fond personnalisée..."
-          wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
-          
           echo "Démarrage du mirroring du site..."
           wget \
             --mirror \
@@ -54,6 +46,10 @@ jobs:
             --directory-prefix=. \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
+
+          # Télécharger l'image de fond de remplacement après le mirroring
+          echo "Téléchargement de l'image de fond personnalisée..."
+          wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
       
       - name: Process Files (Text Replace and Style Injection)
         shell: python
