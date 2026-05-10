@@ -1,318 +1,101 @@
-name: 🌐 Aspirateur Web
+name: Mirror Final - Animation Fix
 
 on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 */6 * * *'
-  issues:
-    types: [opened, reopened]
   push:
     branches: [main]
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
   pages: write
   id-token: write
-  issues: write
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+  group: github-pages
+  cancel-in-progress: true
 
 jobs:
-  # ─────────────────────────────────────────
-  # JOB 1 : Aspirer un site (déclenché par une Issue)
-  # ─────────────────────────────────────────
-  aspirer:
-    if: github.event_name == 'issues'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout du dépôt
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.ASPIRATEUR }}
-          fetch-depth: 0
-
-      - name: Configurer Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Extraire l'URL de l'issue
-        id: url
-        run: |
-          TITLE="${{ github.event.issue.title }}"
-          URL=$(echo "$TITLE" | grep -oP 'https?://\S+' | head -1)
-          if [ -z "$URL" ]; then
-            echo "::error::Aucune URL trouvée dans le titre de l'issue"
-            exit 1
-          fi
-          DOMAIN=$(echo "$URL" | awk -F/ '{print $3}' | sed 's/^www\.//')
-          SAFE_DOMAIN=$(echo "$DOMAIN" | sed 's/[^a-zA-Z0-9.-]/_/g')
-          echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "domain=$SAFE_DOMAIN" >> $GITHUB_OUTPUT
-
-      - name: Aspirer le site avec wget
-        run: |
-          mkdir -p archives
-          wget --mirror --convert-links --adjust-extension --page-requisites \
-               --no-parent --restrict-file-names=windows --timeout=30 -t 3 \
-               -P "archives/${{ steps.url.outputs.domain }}" \
-               "${{ steps.url.outputs.url }}" || true
-
-          cat > "archives/${{ steps.url.outputs.domain }}/.info.json" << EOF
-          {
-            "url": "${{ steps.url.outputs.url }}",
-            "domain": "${{ steps.url.outputs.domain }}",
-            "date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "issue": "${{ github.event.issue.number }}"
-          }
-          EOF
-
-      - name: Commit et push des archives
-        run: |
-          git add archives/
-          git diff --cached --quiet || git commit -m "aspirateur: archive de ${{ steps.url.outputs.domain }} [skip ci]"
-          git push
-
-      - name: Fermer l'issue
-        env:
-          GH_TOKEN: ${{ secrets.ASPIRATEUR }}
-        run: |
-          gh issue close ${{ github.event.issue.number }} --comment \
-            "✅ **Site aspiré avec succès !**<br><br>• **Domaine** : ${{ steps.url.outputs.domain }}<br>• **URL** : ${{ steps.url.outputs.url }}<br><br>🚀 La page sera mise à jour d'ici quelques minutes."
-
-  # ─────────────────────────────────────────
-  # JOB 2 : Générer la page HTML et déployer
-  # ─────────────────────────────────────────
-  deploy:
-    needs: aspirer
-    if: always() && !contains(github.event.head_commit.message || '', '[skip ci]')
-    runs-on: ubuntu-latest
+  build-and-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout du dépôt
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.ASPIRATEUR }}
-          fetch-depth: 0
 
-      - name: Récupérer les derniers commits
-        run: git pull origin main
-
-      - name: Préparer le dossier public
+      - name: Mirroring
         run: |
-          mkdir -p public/archives
-          [ -d archives ] && cp -r archives/* public/archives/ 2>/dev/null || true
-          touch public/.nojekyll
+          rm -rf site && mkdir site
+          wget \
+            --mirror \
+            --page-requisites \
+            --adjust-extension \
+            --convert-links \
+            --no-parent \
+            --no-host-directories \
+            -e robots=off \
+            --directory-prefix=site \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            https://www.saintjosephdescarmes.com || true
 
-      - name: Générer l'interface HTML
-        env:
-          REPO_FULL: ${{ github.repository }}
+      - name: Remplacement par Injection (Zéro modification HTML direct)
+        shell: python
         run: |
-          cat > public/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html lang="fr">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>🌐 Aspirateur Web</title>
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-                background: #0d1117;
-                color: #c9d1d9;
-                line-height: 1.6;
-                padding: 2rem 1rem;
-                max-width: 1100px;
-                margin: 0 auto;
-              }
-              h1 { color: #58a6ff; font-size: 2rem; margin-bottom: 0.25rem; }
-              .subtitle { color: #8b949e; margin-bottom: 2rem; }
-              .card {
-                background: #161b22;
-                border: 1px solid #30363d;
-                border-radius: 12px;
-                padding: 1.5rem;
-                margin-bottom: 1.5rem;
-              }
-              .card h2 { color: #e6edf3; margin-bottom: 1rem; font-size: 1.25rem; }
-              input[type="url"] {
-                width: 100%;
-                padding: 0.85rem;
-                background: #0d1117;
-                border: 1px solid #30363d;
-                border-radius: 8px;
-                color: #c9d1d9;
-                font-size: 1rem;
-                margin-bottom: 1rem;
-                outline: none;
-              }
-              input[type="url"]:focus { border-color: #58a6ff; }
-              button, .btn {
-                display: inline-block;
-                padding: 0.75rem 1.25rem;
-                border-radius: 8px;
-                font-size: 0.95rem;
-                font-weight: 600;
-                cursor: pointer;
-                text-decoration: none;
-                border: none;
-                transition: opacity 0.2s;
-              }
-              button:hover, .btn:hover { opacity: 0.85; }
-              .btn-primary { background: #238636; color: #fff; }
-              .btn-blue { background: #1f6feb; color: #fff; }
-              .btn-gray { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
-              .hint { color: #8b949e; font-size: 0.85rem; margin-top: 0.75rem; }
-              .grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                gap: 1rem;
-              }
-              .archive {
-                background: #161b22;
-                border: 1px solid #30363d;
-                border-radius: 12px;
-                padding: 1.25rem;
-                display: flex;
-                flex-direction: column;
-                gap: 0.75rem;
-              }
-              .archive h3 {
-                color: #58a6ff;
-                font-size: 1.1rem;
-                word-break: break-all;
-              }
-              .archive .meta {
-                color: #8b949e;
-                font-size: 0.8rem;
-              }
-              .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-              .empty {
-                text-align: center;
-                color: #8b949e;
-                padding: 3rem 1rem;
-                grid-column: 1 / -1;
-              }
-              .loading { color: #8b949e; grid-column: 1 / -1; text-align: center; padding: 2rem; }
-              .error { color: #f85149; grid-column: 1 / -1; text-align: center; padding: 2rem; }
-              .badge {
-                display: inline-block;
-                background: #238636;
-                color: #fff;
-                font-size: 0.75rem;
-                padding: 0.2rem 0.5rem;
-                border-radius: 999px;
-                margin-left: 0.5rem;
-                vertical-align: middle;
-              }
-            </style>
-          </head>
-          <body>
-            <h1>🌐 Aspirateur Web <span class="badge">GitHub Actions</span></h1>
-            <p class="subtitle">Archive des sites web stockée directement dans ce dépôt GitHub</p>
+          import os, re
 
-            <div class="card">
-              <h2>📥 Nouvelle aspiration</h2>
-              <form id="aspireForm">
-                <input type="url" id="urlInput" placeholder="https://exemple.com" required>
-                <button type="submit" class="btn-primary">Aspirer ce site</button>
-              </form>
-              <p class="hint">
-                💡 Vous serez redirigé vers GitHub pour créer une issue. Le robot aspirera automatiquement le site.
-              </p>
-            </div>
-
-            <h2 style="margin-bottom: 1rem;">📚 Archives disponibles</h2>
-            <div id="archives" class="grid"><div class="loading">Chargement des archives…</div></div>
-
-            <script>
-              const REPO = 'REPO_PLACEHOLDER';
-              const [OWNER, REPO_NAME] = REPO.split('/');
-
-              document.getElementById('aspireForm').addEventListener('submit', (e) => {
-                e.preventDefault();
-                const url = document.getElementById('urlInput').value.trim();
-                if (!url) return;
-                const title = encodeURIComponent('Aspirer: ' + url);
-                const body = encodeURIComponent(
-                  '**URL à aspirer :** ' + url + '\n\n' +
-                  '---\n*Issue créée automatiquement via l’interface Aspirateur Web*'
-                );
-                window.open(
-                  `https://github.com/${OWNER}/${REPO_NAME}/issues/new?title=${title}&body=${body}&labels=aspiration`,
-                  '_blank'
-                );
-              });
-
-              async function loadArchives() {
-                const container = document.getElementById('archives');
-                try {
-                  const res = await fetch(
-                    `https://api.github.com/repos/${OWNER}/${REPO_NAME}/contents/archives?ref=main`
-                  );
-                  if (res.status === 404) {
-                    container.innerHTML = '<div class="empty">Aucune archive pour le moment.<br>Soyez le premier à aspirer un site !</div>';
-                    return;
-                  }
-                  if (!res.ok) throw new Error('HTTP ' + res.status);
-                  const data = await res.json();
-                  const folders = data.filter(i => i.type === 'dir');
-
-                  if (folders.length === 0) {
-                    container.innerHTML = '<div class="empty">Aucune archive pour le moment.</div>';
-                    return;
-                  }
-
-                  container.innerHTML = folders.map(f => {
-                    const domain = f.name;
-                    return `
-                      <div class="archive">
-                        <h3>🌍 ${domain}</h3>
-                        <div class="meta">Dossier : ${f.path}</div>
-                        <div class="actions">
-                          <a href="archives/${domain}/" class="btn btn-blue" target="_blank">👁️ Voir</a>
-                          <a href="https://github.com/${OWNER}/${REPO_NAME}/tree/main/${f.path}" class="btn btn-gray" target="_blank">📁 Fichiers</a>
-                          <button class="btn btn-gray" onclick="reaspirer('${domain}')" title="Relancer l'aspiration">🔄 Republier</button>
-                        </div>
-                      </div>
-                    `;
-                  }).join('');
-                } catch (err) {
-                  container.innerHTML = '<div class="error">⚠️ Impossible de charger les archives.<br>Vérifiez que le dépôt est public ou reconnectez-vous.</div>';
-                  console.error(err);
-                }
+          # Ce script est beaucoup plus robuste : il attend que la page et ses scripts soient prêts
+          # Il scanne tout, même ce qui apparaît après une animation
+          js_injector = """
+          <script>
+          (function(){
+            const replaceText = (node) => {
+              if (node.nodeType === 3) {
+                const newText = node.nodeValue.replace(/Chanteur/g, 'Rappeur').replace(/chanteur/g, 'rappeur');
+                if (newText !== node.nodeValue) node.nodeValue = newText;
+              } else if (node.nodeName !== 'SCRIPT' && node.nodeName !== 'STYLE') {
+                node.childNodes.forEach(replaceText);
               }
+            };
+            
+            // 1. Remplace au chargement
+            window.addEventListener('load', () => replaceText(document.body));
+            
+            // 2. Remplace dès qu'une animation ajoute du texte (ex: ton texte qui apparaît après 2s)
+            const observer = new MutationObserver(mutations => {
+              mutations.forEach(m => m.addedNodes.forEach(replaceText));
+            });
+            observer.observe(document.documentElement, {childList: true, subtree: true});
+          })();
+          </script>
+          """
 
-              function reaspirer(domain) {
-                const title = encodeURIComponent('Aspirer: https://' + domain);
-                const body = encodeURIComponent(
-                  '**Ré-aspiration demandée pour :** https://' + domain + '\n\n' +
-                  '---\n*Redéclenché via le bouton Republier de l’interface.*'
-                );
-                window.open(
-                  `https://github.com/${OWNER}/${REPO_NAME}/issues/new?title=${title}&body=${body}&labels=aspiration`,
-                  '_blank'
-                );
-              }
+          for root, _, files in os.walk("site"):
+              for f in files:
+                  path = os.path.join(root, f)
+                  if f.lower().endswith(('.html', '.htm')):
+                      try:
+                          with open(path, 'r', encoding='utf-8', errors='ignore') as file:
+                              content = file.read()
+                          
+                          # On injecte le script juste avant la fin du body
+                          # On ne modifie RIEN d'autre dans le HTML original
+                          if "</body>" in content.lower():
+                              new_content = re.sub(r'(?i)</body>', f'{js_injector}</body>', content)
+                              with open(path, 'w', encoding='utf-8') as file:
+                                  file.write(new_content)
+                      except: pass
 
-              loadArchives();
-            </script>
-          </body>
-          </html>
-          HTMLEOF
-
-          sed -i "s|REPO_PLACEHOLDER|$REPO_FULL|g" public/index.html
+      - name: Fix Jekyll
+        run: touch site/.nojekyll
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: public
+          path: site
 
-      - name: Déployer sur GitHub Pages
+      - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
