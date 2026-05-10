@@ -29,68 +29,80 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirroring Website
+      - name: Mirroring Website (Optimized)
         run: |
-          # Clean up previous content, excluding .git, .github, and the background image
+          # Nettoyage complet du répertoire, car nous reconstruisons tout
           echo "Nettoyage du répertoire de travail..."
-          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name 'petits-rappeurs.png' ! -name '.' -exec rm -rf {} +
+          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name '.' -exec rm -rf {} +
           
-          echo "Démarrage du mirroring..."
+          echo "Démarrage du mirroring (sans les images Wix)..."
           wget \
             --mirror \
-            --page-requisites \
             --adjust-extension \
             --convert-links \
             --span-hosts \
-            --domains=www.saintjosephdescarmes.com,static.wixstatic.com \
+            --domains=www.saintjosephdescarmes.com,static.parastorage.com \
             --no-parent \
             --no-host-directories \
             -e robots=off \
+            --reject-regex='.*\.(jpg|jpeg|gif|png|mp3|mp4|avi|svg)$' \
             --directory-prefix=. \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
-      
-      - name: Remplacement du contenu et renommage des fichiers
+
+      - name: Replace Content and Background Image URL
         shell: python
         run: |
           import os
           import re
           import shutil
 
-          site_dir = "." 
-          replacements = {
+          site_dir = "."
+          
+          # Dictionnaire des remplacements de texte
+          text_replacements = {
               "Chanteur": "Rappeur",
               "chanteur": "rappeur",
               "Cœur": "Projet",
               "cœur": "projet"
           }
 
-          def replace_content_in_file(path):
+          # URL de l'image à remplacer et nouvelle URL
+          old_image_url_pattern = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg/v1/fill/w_1223,h_749,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg"
+          new_image_url = "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
+
+          def process_file(path):
               try:
                   with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                       content = file.read()
                   
                   original_content = content
                   
-                  for old, new in replacements.items():
+                  # 1. Remplacer l'URL de l'image de fond
+                  content = content.replace(old_image_url_pattern, new_image_url)
+
+                  # 2. Effectuer les remplacements de texte
+                  for old, new in text_replacements.items():
                       content = content.replace(old, new)
                   
+                  # 3. Remplacer les autres URLs statiques
                   content = re.sub(r'https?://static\.wixstatic\.com/media/', r'/media/', content)
 
                   if content != original_content:
+                      print(f"Modification du contenu de : {path}")
                       with open(path, 'w', encoding='utf-8') as file:
                           file.write(content)
               except Exception as e:
-                  print(f"Erreur (contenu) sur {path}: {e}")
+                  print(f"Erreur lors du traitement de {path}: {e}")
 
           def rename_files_and_dirs(root_dir):
+              # Cette fonction est conservée pour renommer les fichiers si nécessaire
               for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
                   if '.git' in dirpath or '.github' in dirpath:
                       continue
-
                   for name_list, is_dir in [(filenames, False), (dirnames, True)]:
                       for name in name_list:
-                          for old, new in replacements.items():
+                          for old, new in text_replacements.items():
                               if old in name:
                                   old_path = os.path.join(dirpath, name)
                                   new_name = name.replace(old, new)
@@ -98,45 +110,21 @@ jobs:
                                   try:
                                       shutil.move(old_path, new_path)
                                   except Exception as e:
-                                      print(f"Erreur (renommage) sur {old_path}: {e}")
-                                  break 
+                                      print(f"Erreur de renommage sur {old_path}: {e}")
+                                  break
 
-          print("1. Remplacement du contenu...")
+          print("1. Remplacement du contenu et de l'URL de l'image de fond...")
           for root, _, files in os.walk(site_dir):
               if '.git' in root or '.github' in root:
                   continue
               for f in files:
-                  if f.lower().endswith(('.html', '.htm', '.css', '.js')):
-                      replace_content_in_file(os.path.join(root, f))
+                  # Nous ciblons les fichiers qui pourraient contenir des URLs
+                  if f.lower().endswith(('.html', '.htm', '.css', '.js', '.json')):
+                      process_file(os.path.join(root, f))
           
           print("2. Renommage des fichiers et dossiers...")
           rename_files_and_dirs(site_dir)
-
-      - name: Injecter l'arrière-plan personnalisé
-        shell: bash
-        run: |
-          FILE_PATH="les-petits-rappeurs.html"
-          if [ ! -f "$FILE_PATH" ]; then
-            echo "Fichier $FILE_PATH non trouvé. Injection annulée."
-            exit 0
-          fi
-
-          # Définir le bloc de style à insérer
-          STYLE_BLOCK='<style>\n    #pageBackground_ib0se {\n      background-image: url('\''/petits-rappeurs.png'\'') !important;\n      background-size: cover !important;\n      background-position: center center !important;\n      background-repeat: no-repeat !important;\n      --bg-overlay-color: rgba(0, 0, 0, 0.3) !important;\n    }\n  </style>'
-
-          # Insérer le style avant la balise </head>
-          # Utilisation de awk pour une meilleure portabilité et lisibilité que sed
-          awk -v style="$STYLE_BLOCK" '
-          /<\/head>/ {
-            print style
-          }
-          {
-            print
-          }
-          ' "$FILE_PATH" > temp_file && mv temp_file "$FILE_PATH"
-          
-          echo "Injection du style CSS personnalisé dans $FILE_PATH terminée."
-
+      
       - name: Fix Jekyll
         run: touch .nojekyll
 
@@ -149,7 +137,7 @@ jobs:
             echo "Aucun changement détecté, pas de commit nécessaire."
           else
             echo "Changements détectés, création du commit..."
-            git commit -m "BOT: Mise à jour auto du site et arrière-plan personnalisé" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
+            git commit -m "BOT: Mise à jour auto du site et remplacement de l'arrière-plan" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
             git push origin main
           fi
 
