@@ -3,13 +3,13 @@ name: Mirror, Fix, and Deploy Site
 on:
   push:
     branches:
-      - main # Se déclenche sur un push, mais on évitera les boucles
+      - main
   schedule:
-    - cron: '0 2 * * *' # Exécution programmée toutes les nuits à 2h
-  workflow_dispatch: # Permet le lancement manuel
+    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write # Indispensable pour pouvoir pousser des commits
+  contents: write
   pages: write
   id-token: write
 
@@ -31,7 +31,7 @@ jobs:
 
       - name: Mirroring Website
         run: |
-          # On nettoie le contenu précédent sauf .git, .github et l'image de fond
+          # Clean up previous content, excluding .git, .github, and the background image
           echo "Nettoyage du répertoire de travail..."
           find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name 'petits-rappeurs.png' ! -name '.' -exec rm -rf {} +
           
@@ -112,17 +112,30 @@ jobs:
           print("2. Renommage des fichiers et dossiers...")
           rename_files_and_dirs(site_dir)
 
-      - name: Injecter l'arrière-plan personnalisé pour les Petits Rappeurs
+      - name: Injecter l'arrière-plan personnalisé
+        shell: bash
         run: |
           FILE_PATH="les-petits-rappeurs.html"
-          if [ -f "$FILE_PATH" ]; then
-            echo "Injection du style CSS personnalisé dans $FILE_PATH..."
-            # On insère le bloc de style juste avant la balise de fermeture </head>
-            sed -i "s#</head>#  <style>\n    #pageBackground_ib0se {\n      background-image: url('/petits-rappeurs.png') !important;\n      background-size: cover !important;\n      background-position: center center !important;\n      background-repeat: no-repeat !important;\n      --bg-overlay-color: rgba(0, 0, 0, 0.3) !important;\n    }\n  </style>\n</head>#" "$FILE_PATH"
-            echo "Injection terminée."
-          else
-            echo "Fichier $FILE_PATH non trouvé, l'injection est ignorée."
+          if [ ! -f "$FILE_PATH" ]; then
+            echo "Fichier $FILE_PATH non trouvé. Injection annulée."
+            exit 0
           fi
+
+          # Définir le bloc de style à insérer
+          STYLE_BLOCK='<style>\n    #pageBackground_ib0se {\n      background-image: url('\''/petits-rappeurs.png'\'') !important;\n      background-size: cover !important;\n      background-position: center center !important;\n      background-repeat: no-repeat !important;\n      --bg-overlay-color: rgba(0, 0, 0, 0.3) !important;\n    }\n  </style>'
+
+          # Insérer le style avant la balise </head>
+          # Utilisation de awk pour une meilleure portabilité et lisibilité que sed
+          awk -v style="$STYLE_BLOCK" '
+          /<\/head>/ {
+            print style
+          }
+          {
+            print
+          }
+          ' "$FILE_PATH" > temp_file && mv temp_file "$FILE_PATH"
+          
+          echo "Injection du style CSS personnalisé dans $FILE_PATH terminée."
 
       - name: Fix Jekyll
         run: touch .nojekyll
@@ -136,7 +149,7 @@ jobs:
             echo "Aucun changement détecté, pas de commit nécessaire."
           else
             echo "Changements détectés, création du commit..."
-            git commit -m "BOT: Mise à jour automatique du site et arrière-plan personnalisé" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
+            git commit -m "BOT: Mise à jour auto du site et arrière-plan personnalisé" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
             git push origin main
           fi
 
