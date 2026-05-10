@@ -77,8 +77,8 @@ jobs:
                   background-color: #000000 !important;
               }
               #bgMedia_pageBackground_ib0se,
-              #bgMedia_pageBackground_ib0se wow-image,
-              #bgMedia_pageBackground_ib0se img {
+              #bgMedia_pageBackground_ib0se > wow-image,
+              #bgMedia_pageBackground_ib0se > wow-image > img {
                   display: none !important;
               }
           </style>
@@ -88,7 +88,7 @@ jobs:
 
           def add_background_style(match):
               opening = match.group(1)
-              if re.search(r'\\sstyle\\s*=', opening):
+              if re.search(r'\sstyle\s*=', opening):
                   return match.group(0)
               return f'{opening} style="{BACKGROUND_STYLE}"{match.group(2)}'
 
@@ -106,8 +106,8 @@ jobs:
                   # Injection du style si c'est le bon fichier HTML
                   if os.path.basename(path) == 'les-petits-rappeurs.html':
                       content = re.sub(
-                          r'(<div id="bgMedia_pageBackground_ib0se"[^>]*>).*?(</div>)',
-                          r'\1\2',
+                          r'<wow-image id="img_pageBackground_ib0se"[^>]*>.*?</wow-image>',
+                          '',
                           content,
                           flags=re.DOTALL,
                       )
