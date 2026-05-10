@@ -1,3 +1,4 @@
+
 name: Mirror, Fix, and Deploy Site
 
 on:
@@ -29,23 +30,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirroring Website
+      - name: Mirroring Website and Download Assets
         run: |
-          # Conserver l'image de fond personnalisée, puis nettoyer le reste
-          echo "Sauvegarde de l'image personnalisée..."
-          if [ -f "petits-rappeurs.png" ]; then
-            mv petits-rappeurs.png ../petits-rappeurs.png.bak
-          fi
-          
+          # Nettoyage complet
           echo "Nettoyage du répertoire de travail..."
           find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name '.' -exec rm -rf {} +
 
-          echo "Restauration de l'image personnalisée..."
-          if [ -f "../petits-rappeurs.png.bak" ]; then
-            mv ../petits-rappeurs.png.bak ./petits-rappeurs.png
-          fi
+          # Télécharger l'image de fond de remplacement
+          echo "Téléchargement de l'image de fond personnalisée..."
+          wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
           
-          echo "Démarrage du mirroring..."
+          echo "Démarrage du mirroring du site..."
           wget \
             --mirror \
             --page-requisites \
@@ -60,83 +55,89 @@ jobs:
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
       
-      - name: Replace Text and Rename Files
+      - name: Process Files (Text Replace and Style Injection)
         shell: python
         run: |
           import os
           import re
           import shutil
 
-          site_dir = "." 
-          replacements = {
+          SITE_DIR = "."
+          
+          TEXT_REPLACEMENTS = {
               "Chanteur": "Rappeur",
               "chanteur": "rappeur",
               "Cœur": "Projet",
               "cœur": "projet"
           }
 
-          def replace_content_in_file(path):
+          STYLE_BLOCK = """
+          <style id="custom-bg-style">
+              #pageBackground_ib0se {
+                  background-image: url('/petits-rappeurs.png') !important;
+                  background-size: cover !important;
+                  background-position: center center !important;
+                  background-repeat: no-repeat !important;
+                  background-color: #000000 !important;
+              }
+              [data-testid="backgroundImage"] {
+                  display: none !important;
+              }
+          </style>
+          </head>
+          """
+
+          def process_file(path):
               try:
                   with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                       content = file.read()
+                  
                   original_content = content
-                  for old, new in replacements.items():
+                  
+                  # Remplacement des textes
+                  for old, new in TEXT_REPLACEMENTS.items():
                       content = content.replace(old, new)
+                  
+                  # Injection du style si c'est le bon fichier HTML
+                  if os.path.basename(path) == 'les-petits-rappeurs.html':
+                      if '</head>' in content and 'id="custom-bg-style"' not in content:
+                          print(f"Injection du style dans {path}")
+                          content = content.replace('</head>', STYLE_BLOCK, 1)
+
                   if content != original_content:
+                      print(f"Mise à jour du contenu de : {path}")
                       with open(path, 'w', encoding='utf-8') as file:
                           file.write(content)
               except Exception as e:
-                  print(f"Erreur (contenu) sur {path}: {e}")
+                  print(f"Erreur lors du traitement du fichier {path}: {e}")
 
-          def rename_files_and_dirs(root_dir):
-              for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
+          def rename_files(root_dir):
+              for dirpath, _, filenames in os.walk(root_dir, topdown=False):
                   if '.git' in dirpath or '.github' in dirpath:
                       continue
-                  for name_list, is_dir in [(filenames, False), (dirnames, True)]:
-                      for name in name_list:
-                          for old, new in replacements.items():
-                              if old in name:
-                                  old_path = os.path.join(dirpath, name)
-                                  new_name = name.replace(old, new)
-                                  new_path = os.path.join(dirpath, new_name)
-                                  try:
-                                      shutil.move(old_path, new_path)
-                                  except Exception as e:
-                                      print(f"Erreur (renommage) sur {old_path}: {e}")
-                                  break 
+                  for name in filenames:
+                      for old, new in TEXT_REPLACEMENTS.items():
+                          if old in name:
+                              old_path = os.path.join(dirpath, name)
+                              new_name = name.replace(old, new)
+                              new_path = os.path.join(dirpath, new_name)
+                              try:
+                                  shutil.move(old_path, new_path)
+                              except Exception as e:
+                                  print(f"Erreur de renommage sur {old_path}: {e}")
+                              break
 
-          print("1. Remplacement du contenu...")
-          for root, _, files in os.walk(site_dir):
+          print("--- Démarrage du traitement des fichiers ---")
+          for root, _, files in os.walk(SITE_DIR):
               if '.git' in root or '.github' in root:
                   continue
               for f in files:
                   if f.lower().endswith(('.html', '.htm', '.css', '.js')):
-                      replace_content_in_file(os.path.join(root, f))
+                      process_file(os.path.join(root, f))
           
-          print("2. Renommage des fichiers et dossiers...")
-          rename_files_and_dirs(site_dir)
+          rename_files(SITE_DIR)
+          print("--- Traitement des fichiers terminé ---")
 
-      - name: Inject Custom Background Style
-        shell: bash
-        run: |
-          set -e
-          FILE_PATH="les-petits-rappeurs.html"
-          if [ ! -f "$FILE_PATH" ]; then
-            echo "Fichier $FILE_PATH non trouvé. L'injection est ignorée."
-            exit 0
-          fi
-          
-          # Vérifier si le style n'est pas déjà présent pour éviter les doublons
-          if grep -q "id=\"custom-bg-style\"" "$FILE_PATH"; then
-            echo "Le style personnalisé est déjà présent. Pas d'injection."
-            exit 0
-          fi
-
-          echo "Injection du style CSS personnalisé dans $FILE_PATH..."
-          # Utilisation de sed avec une syntaxe compatible et des délimiteurs différents pour éviter les conflits
-          sed -i "s#</head>#<style id=\"custom-bg-style\">\n    #pageBackground_ib0se {\n        background-image: url('/petits-rappeurs.png') !important;\n        background-size: cover !important;\n        background-position: center center !important;\n        background-repeat: no-repeat !important;\n        background-color: #000000 !important; /* Ajout d'un fond noir au cas où l'image ne charge pas */\n    }\n    /* Masquer l'image Wix originale si elle est superposée */\n    [data-testid=\"backgroundImage\"] {\n        display: none !important;\n    }\n</style>\n</head>#" "$FILE_PATH"
-          echo "Injection terminée."
-      
       - name: Fix Jekyll
         run: touch .nojekyll
 
@@ -149,7 +150,7 @@ jobs:
             echo "Aucun changement détecté, pas de commit nécessaire."
           else
             echo "Changements détectés, création du commit..."
-            git commit -m "BOT: Force l'arrière-plan personnalisé sur la page des rappeurs" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
+            git commit -m "BOT: Force l'arrière-plan personnalisé via injection Python" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
             git push origin main
           fi
 
