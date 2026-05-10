@@ -32,9 +32,9 @@ jobs:
 
       - name: Mirroring Website
         run: |
-          # On nettoie le contenu précédent sauf le dossier .git et le workflow lui-même
+          # On nettoie le contenu précédent sauf .git, .github et l'image des petits rappeurs
           echo "Nettoyage du répertoire de travail..."
-          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name '.' -exec rm -rf {} +
+          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name 'petits-rappeurs.png' ! -name '.' -exec rm -rf {} +
           
           echo "Démarrage du mirroring..."
           wget \
