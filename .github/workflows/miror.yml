@@ -1,19 +1,20 @@
-name: Mirror Final - Animation Fix
+name: Mirror, Fix, and Deploy Site
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main # Se déclenche sur un push, mais on évitera les boucles
   schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+    - cron: '0 2 * * *' # Exécution programmée toutes les nuits à 2h
+  workflow_dispatch: # Permet le lancement manuel
 
 permissions:
-  contents: write
+  contents: write # Indispensable pour pouvoir pousser des commits
   pages: write
   id-token: write
 
 concurrency:
-  group: github-pages
+  group: "pages"
   cancel-in-progress: true
 
 jobs:
@@ -25,10 +26,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # On récupère tout l'historique pour une meilleure gestion des diffs
+          fetch-depth: 0
 
-      - name: Mirroring
+      - name: Mirroring Website
         run: |
-          rm -rf site && mkdir site
+          # On nettoie le contenu précédent sauf le dossier .git et le workflow lui-même
+          echo "Nettoyage du répertoire de travail..."
+          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name '.' -exec rm -rf {} +
+          
+          echo "Démarrage du mirroring..."
           wget \
             --mirror \
             --page-requisites \
@@ -39,18 +47,20 @@ jobs:
             --no-parent \
             --no-host-directories \
             -e robots=off \
-            --directory-prefix=site \
+            --directory-prefix=. \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
-
+      
       - name: Remplacement du contenu et renommage des fichiers
         shell: python
         run: |
           import os
           import re
+          import shutil
 
           # --- Configuration ---
-          site_dir = "site"
+          # Le site est maintenant à la racine du dépôt
+          site_dir = "." 
           replacements = {
               "Chanteur": "Rappeur",
               "chanteur": "rappeur",
@@ -60,69 +70,78 @@ jobs:
 
           # --- Fonctions ---
           def replace_content_in_file(path):
-              """Remplace le contenu textuel dans un fichier."""
               try:
                   with open(path, 'r', encoding='utf-8', errors='ignore') as file:
                       content = file.read()
                   
-                  modified = False
+                  original_content = content
+                  
                   for old, new in replacements.items():
-                      if old in content:
-                          content = content.replace(old, new)
-                          modified = True
+                      content = content.replace(old, new)
                   
-                  # Remplacement des URLs d'images pour pointer vers le local
-                  # Exemple: https://static.wixstatic.com/media/foo.jpg -> /media/foo.jpg
-                  # Cela rend les liens relatifs à la racine du site GitHub Pages.
-                  content = re.sub(r'https?://static\.wixstatic\.com/media/([a-zA-Z0-9_.-]+)', r'/media/\1', content)
-                  
-                  if modified or 'wixstatic' in content: # Réécrire uniquement si nécessaire
+                  # Rendre les URLs d'images relatives à la racine
+                  content = re.sub(r'https?://static\.wixstatic\.com/media/', r'/media/', content)
+
+                  if content != original_content:
                       with open(path, 'w', encoding='utf-8') as file:
                           file.write(content)
               except Exception as e:
-                  print(f"Erreur lors du traitement du fichier {path}: {e}")
+                  print(f"Erreur (contenu) sur {path}: {e}")
 
           def rename_files_and_dirs(root_dir):
-              """Renomme les fichiers et dossiers contenant les mots à remplacer."""
               for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
-                  # Renommer les fichiers
-                  for filename in filenames:
-                      for old, new in replacements.items():
-                          if old in filename:
-                              old_path = os.path.join(dirpath, filename)
-                              new_filename = filename.replace(old, new)
-                              new_path = os.path.join(dirpath, new_filename)
-                              print(f"Renommage fichier: {old_path} -> {new_path}")
-                              os.rename(old_path, new_path)
-                  
-                  # Renommer les dossiers
-                  for dirname in dirnames:
-                      for old, new in replacements.items():
-                          if old in dirname:
-                              old_path = os.path.join(dirpath, dirname)
-                              new_dirname = dirname.replace(old, new)
-                              new_path = os.path.join(dirpath, new_dirname)
-                              print(f"Renommage dossier: {old_path} -> {new_path}")
-                              os.rename(old_path, new_path)
+                  # Ne pas toucher au dossier .git ou .github
+                  if '.git' in dirpath or '.github' in dirpath:
+                      continue
+
+                  for name_list, is_dir in [(filenames, False), (dirnames, True)]:
+                      for name in name_list:
+                          for old, new in replacements.items():
+                              if old in name:
+                                  old_path = os.path.join(dirpath, name)
+                                  new_name = name.replace(old, new)
+                                  new_path = os.path.join(dirpath, new_name)
+                                  try:
+                                      print(f"Renommage {'dossier' if is_dir else 'fichier'}: {old_path} -> {new_path}")
+                                      shutil.move(old_path, new_path)
+                                  except Exception as e:
+                                      print(f"Erreur (renommage) sur {old_path}: {e}")
+                                  break # On passe au fichier/dossier suivant après un renommage
 
           # --- Exécution ---
-          # 1. Remplacement du contenu
+          print("1. Remplacement du contenu...")
           for root, _, files in os.walk(site_dir):
+              if '.git' in root or '.github' in root:
+                  continue
               for f in files:
-                  path = os.path.join(root, f)
                   if f.lower().endswith(('.html', '.htm', '.css', '.js')):
-                      replace_content_in_file(path)
+                      replace_content_in_file(os.path.join(root, f))
           
-          # 2. Renommage des fichiers et dossiers (après modification des liens)
+          print("2. Renommage des fichiers et dossiers...")
           rename_files_and_dirs(site_dir)
 
       - name: Fix Jekyll
-        run: touch site/.nojekyll
+        run: touch .nojekyll
 
-      - name: Upload artifact
+      - name: Commit and Push Changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A
+          # On vérifie s'il y a des changements à commiter
+          if git diff --staged --quiet; then
+            echo "Aucun changement détecté, pas de commit nécessaire."
+          else
+            echo "Changements détectés, création du commit..."
+            git commit -m "BOT: Mise à jour automatique du site miroir" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
+            git push origin main
+          fi
+
+      - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          # Le chemin est maintenant la racine du dépôt
+          path: .
 
       - name: Deploy to GitHub Pages
         id: deployment
