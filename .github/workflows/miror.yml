@@ -88,16 +88,17 @@ jobs:
 
           def add_background_style(match):
               opening = match.group(1)
-              style_match = re.search(r'\sstyle\s*=\s*([\'"])(.*?)\1', opening)
-              if style_match:
+              style_pattern = r'\sstyle\s*=\s*([\'"])(.*?)\1'
+
+              def replace_style(style_match):
                   quote = style_match.group(1)
                   existing = style_match.group(2).strip()
                   separator = '' if not existing or existing.endswith(';') else '; '
                   new_style = f'{existing}{separator}{BACKGROUND_STYLE}'
-                  opening = (
-                      f'{opening[:style_match.start()]} style={quote}{new_style}{quote}'
-                      f'{opening[style_match.end():]}'
-                  )
+                  return f' style={quote}{new_style}{quote}'
+
+              if re.search(style_pattern, opening):
+                  opening = re.sub(style_pattern, replace_style, opening, count=1)
                   return f'{opening}{match.group(2)}'
               return f'{opening} style="{BACKGROUND_STYLE}"{match.group(2)}'
 
