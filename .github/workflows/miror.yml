@@ -1,148 +1,792 @@
-name: Mirror, Fix, and Deploy Site
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1" id="wixDesktopViewport" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="generator" content="Wix.com Website Builder"/>
 
-on:
-  push:
-    branches:
-      - main # Se déclenche sur un push, mais on évitera les boucles
-  schedule:
-    - cron: '0 2 * * *' # Exécution programmée toutes les nuits à 2h
-  workflow_dispatch: # Permet le lancement manuel
+  <link rel="icon" sizes="192x192" href="media/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif/v1/fill/w_192,h_192,lg_1,usm_0.66_1.00_0.01/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif/v1/fill/w_192,h_192,lg_1,usm_0.66_1.00_0.01/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif">
+  <link rel="shortcut icon" href="media/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif/v1/fill/w_32,h_32,lg_1,usm_0.66_1.00_0.01/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif">
+  <link rel="apple-touch-icon" href="media/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif/v1/fill/w_180,h_180,lg_1,usm_0.66_1.00_0.01/c1f88d_fe36fdff183543469e101979921098a2~mv2_d_2150_2280_s_2.gif">
 
-permissions:
-  contents: write # Indispensable pour pouvoir pousser des commits
-  pages: write
-  id-token: write
+  <!-- Safari Pinned Tab Icon -->
+  <!-- <link rel="mask-icon" href="/media/c1f88d_fe36fdff183543469e101979921098a2%7Emv2_d_2150_2280_s_2.gif/v1/fill/w_32%2Ch_32%2Clg_1%2Cusm_0.66_1.00_0.01/c1f88d_fe36fdff183543469e101979921098a2%7Emv[...]
 
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  <!-- Segmenter Polyfill -->
+  <script>
+    if (!window.Intl || !window.Intl.Segmenter) {
+      (function() {
+        var script = document.createElement('script');
+        script.src = 'https://static.parastorage.com/unpkg/@formatjs/intl-segmenter@11.7.10/polyfill.iife.js';
+        document.head.appendChild(script);
+      })();
+    }
+  </script>
 
-jobs:
-  build-and-deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          # On récupère tout l'historique pour une meilleure gestion des diffs
-          fetch-depth: 0
+  <!-- Legacy Polyfills -->
+  <script nomodule="" src="https://static.parastorage.com/unpkg/core-js-bundle@3.2.1/minified.js"></script>
+  <script nomodule="" src="https://static.parastorage.com/unpkg/focus-within-polyfill@5.0.9/dist/focus-within-polyfill.js"></script>
 
-      - name: Mirroring Website
-        run: |
-          # On nettoie le contenu précédent sauf .git, .github et l'image des petits rappeurs
-          echo "Nettoyage du répertoire de travail..."
-          find . -maxdepth 1 ! -name '.git' ! -name '.github' ! -name 'petits-rappeurs.png' ! -name '.' -exec rm -rf {} +
-          
-          echo "Démarrage du mirroring..."
-          wget \
-            --mirror \
-            --page-requisites \
-            --adjust-extension \
-            --convert-links \
-            --span-hosts \
-            --domains=www.saintjosephdescarmes.com,static.wixstatic.com \
-            --no-parent \
-            --no-host-directories \
-            -e robots=off \
-            --directory-prefix=. \
-            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            https://www.saintjosephdescarmes.com || true
-      
-      - name: Remplacement du contenu et renommage des fichiers
-        shell: python
-        run: |
-          import os
-          import re
-          import shutil
+  <!-- Performance API Polyfills -->
+  <script>
+  (function () {
+    var noop = function noop() {};
+    if ("performance" in window === false) {
+      window.performance = {};
+    }
+    window.performance.mark = performance.mark || noop;
+    window.performance.measure = performance.measure || noop;
+    if ("now" in window.performance === false) {
+      var nowOffset = Date.now();
+      if (performance.timing && performance.timing.navigationStart) {
+        nowOffset = performance.timing.navigationStart;
+      }
+      window.performance.now = function now() {
+        return Date.now() - nowOffset;
+      };
+    }
+  })();
+  </script>
 
-          # --- Configuration ---
-          # Le site est maintenant à la racine du dépôt
-          site_dir = "." 
-          replacements = {
-              "Chanteur": "Rappeur",
-              "chanteur": "rappeur",
-              "Cœur": "Projet",
-              "cœur": "projet"
-          }
+  <!-- Essential Viewer Model -->
+  <script type="application/json" id="wix-essential-viewer-model">{"fleetConfig":{"fleetName":"thunderbolt-renderer-gradual","type":"Rollout","code":1},"mode":{"qa":false,"enableTestApi":false,"debug"[...]
+  <script>window.viewerModel = JSON.parse(document.getElementById('wix-essential-viewer-model').textContent)</script>
 
-          # --- Fonctions ---
-          def replace_content_in_file(path):
-              try:
-                  with open(path, 'r', encoding='utf-8', errors='ignore') as file:
-                      content = file.read()
-                  
-                  original_content = content
-                  
-                  for old, new in replacements.items():
-                      content = content.replace(old, new)
-                  
-                  # Rendre les URLs d'images relatives à la racine
-                  content = re.sub(r'https?://static\.wixstatic\.com/media/', r'/media/', content)
+  <!-- Globals Definitions -->
+  <script>
+    (function () {
+      var now = Date.now()
+      var activationStart = 0
+      try {
+        var navEntry = performance.getEntriesByType('navigation')[0];
+        if (navEntry && navEntry.activationStart > 0) {
+          activationStart = navEntry.activationStart;
+        }
+      } catch (e) {}
+      window.initialTimestamps = {
+        initialTimestamp: now,
+        // initialRequestTimestamp approximates when the navigation started.
+        // activationStart is added to account for prerendered pages: the page may have been
+        // created well before the user actually navigated, and activationStart marks when
+        // the prerendered page was activated (made visible). Adding it shifts timeOrigin
+        // forward to reflect the real navigation time. For non-prerendered pages activationStart is 0.
+        initialRequestTimestamp: Math.round(performance.timeOrigin ? performance.timeOrigin + activationStart : now - performance.now() + activationStart)
+      }
 
-                  if content != original_content:
-                      with open(path, 'w', encoding='utf-8') as file:
-                          file.write(content)
-              except Exception as e:
-                  print(f"Erreur (contenu) sur {path}: {e}")
+      window.thunderboltTag = "QA_READY"
+      window.thunderboltVersion = "1.17266.0"
+    })();
+  </script>
 
-          def rename_files_and_dirs(root_dir):
-              for dirpath, dirnames, filenames in os.walk(root_dir, topdown=False):
-                  # Ne pas toucher au dossier .git ou .github
-                  if '.git' in dirpath or '.github' in dirpath:
-                      continue
+  <script>
+    window.commonConfig = viewerModel.commonConfig
+  </script>
 
-                  for name_list, is_dir in [(filenames, False), (dirnames, True)]:
-                      for name in name_list:
-                          for old, new in replacements.items():
-                              if old in name:
-                                  old_path = os.path.join(dirpath, name)
-                                  new_name = name.replace(old, new)
-                                  new_path = os.path.join(dirpath, new_name)
-                                  try:
-                                      print(f"Renommage {'dossier' if is_dir else 'fichier'}: {old_path} -> {new_path}")
-                                      shutil.move(old_path, new_path)
-                                  except Exception as e:
-                                      print(f"Erreur (renommage) sur {old_path}: {e}")
-                                  break # On passe au fichier/dossier suivant après un renommage
+  
+  <!-- BEGIN handleAccessTokens bundle -->
 
-          # --- Exécution ---
-          print("1. Remplacement du contenu...")
-          for root, _, files in os.walk(site_dir):
-              if '.git' in root or '.github' in root:
-                  continue
-              for f in files:
-                  if f.lower().endswith(('.html', '.htm', '.css', '.js')):
-                      replace_content_in_file(os.path.join(root, f))
-          
-          print("2. Renommage des fichiers et dossiers...")
-          rename_files_and_dirs(site_dir)
+  <script data-url="https://static.parastorage.com/services/wix-thunderbolt/dist/handleAccessTokens.inline.dc220a1a.bundle.min.js">(()=>{"use strict";let e,t,r,o;var n={},i={};function l(e){var t=i[e][...]
+//# sourceMappingURL=handleAccessTokens.inline.dc220a1a.bundle.min.js.map</script>
 
-      - name: Fix Jekyll
-        run: touch .nojekyll
+<!-- END handleAccessTokens bundle -->
 
-      - name: Commit and Push Changes
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add -A
-          # On vérifie s'il y a des changements à commiter
-          if git diff --staged --quiet; then
-            echo "Aucun changement détecté, pas de commit nécessaire."
-          else
-            echo "Changements détectés, création du commit..."
-            git commit -m "BOT: Mise à jour automatique du site miroir" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
-            git push origin main
-          fi
+<!-- BEGIN overrideGlobals bundle -->
 
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
-        with:
-          # Le chemin est maintenant la racine du dépôt
-          path: .
+<script data-url="https://static.parastorage.com/services/wix-thunderbolt/dist/overrideGlobals.inline.306e90d8.bundle.min.js">(()=>{"use strict";var e={},t={};function r(o){var n=t[o];if(void 0!==n)re[...]
+//# sourceMappingURL=overrideGlobals.inline.306e90d8.bundle.min.js.map</script>
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+<!-- END overrideGlobals bundle -->
+
+  
+
+  
+  <script>
+    window.commonConfig = viewerModel.commonConfig
+
+	
+  </script>
+
+  <!-- Initial CSS -->
+  <style data-url="https://static.parastorage.com/services/wix-thunderbolt/dist/main.ad32ab84.min.css">@keyframes slide-horizontal-new{0%{transform:translate(100%)}}@keyframes slide-horizontal-old{80%[...]
+/*# sourceMappingURL=main.ad32ab84.min.css.map*/</style>
+<style data-url="https://static.parastorage.com/services/wix-thunderbolt/dist/main.renderer.0e79bfca.min.css">div,span,applet,object,iframe,h1,h2,h3,h4,h5,h6,p,blockquote,pre,a,abbr,acronym,address,bi[...]
+/*# sourceMappingURL=main.renderer.0e79bfca.min.css.map*/</style>
+
+  <meta name="format-detection" content="telephone=no">
+  <meta name="skype_toolbar" content="skype_toolbar_parser_compatible">
+  
+  
+
+  
+
+  
+      <!--pageHtmlEmbeds.head start-->
+      <script type="wix/htmlEmbeds" id="pageHtmlEmbeds.head start"></script>
+    
+      <script type="wix/htmlEmbeds" id="pageHtmlEmbeds.head end"></script>
+      <!--pageHtmlEmbeds.head end-->
+  
+
+  <!-- head performance data start -->
+  
+  <!-- head performance data end -->
+  
+
+    
+
+  
+  <style id="a11y-contrast">
+    @media (forced-colors: active) {
+      #SITE_CONTAINER.focus-ring-active
+        :not(.has-custom-focus):not(.ignore-focus):not([tabindex='-1']):focus,
+      #SITE_CONTAINER.focus-ring-active
+        :not(.has-custom-focus):not(.ignore-focus):not([tabindex='-1']):focus
+        ~ .wixSdkShowFocusOnSibling {
+        outline: 2px solid CanvasText;
+        outline-offset: 2px;
+      }
+    }
+  </style>
+  
+
+  <script id="wix-skip-played-animations-setup">
+    (function() {
+        var navEntry = performance.getEntriesByType('navigation')[0];
+        if (navEntry && navEntry.type === 'reload') {
+            return;
+        }
+        if ('PageRevealEvent' in window) {
+            window.__pageRevealPromise = new Promise(function(resolve) {
+                window.addEventListener('pagereveal', resolve, { once: true });
+            });
+        } else {
+            window.__pageRevealPromise = Promise.resolve();
+        }
+    })();
+  </script>
+
+<meta http-equiv="X-Wix-Meta-Site-Id" content="331fdde1-512e-4b94-9e8f-b6efebde9bc7">
+<meta http-equiv="X-Wix-Application-Instance-Id" content="1c333973-276a-4288-88b5-19f5fe5f65f9">
+
+    <meta http-equiv="X-Wix-Published-Version" content="629"/>
+
+
+
+    <meta http-equiv="etag" content="bug"/>
+
+<!-- render-head end -->
+
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[DropDownMenu_SolidColorMenuButtonSkin].3c6b3073.min.css">._pfxlW{clip-path:inset[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt_bootstrap.65244cba.min.css">.cwL6XW{cursor:pointer}.sNF2R0{opacity:0}.hLoBV3{tra[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[VerticalMenu_VerticalMenuSolidColorSkin].f3d639a0.min.css">.VUs9VM{margin:0 10px[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[HeaderContainer_DefaultWithFillLayers].36438fa6.min.css">.TMFrcJ{bottom:0;left:0[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt_bootstrap-classic.066ae246.min.css">.PlZyDq{touch-action:manipulation}.uDW_Qe{al[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[Container_DefaultAreaSkin].4f93d927.min.css">.cwL6XW{cursor:pointer}.KaEeLN{--co[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[SkipToContentButton].39deac6a.min.css">.LHrbPP{background:#fff;border-radius:24p[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[WPhoto_RoundPhoto].6daea16d.min.css">.nTOEE9{height:100%;overflow:hidden;positio[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[ClassicSection].6435d050.min.css">.MW5IWV{height:100%;left:0;-webkit-mask-image:[...]
+<style data-href="https://static.parastorage.com/services/editor-elements-library/dist/thunderbolt/rb_wixui.thunderbolt[StripColumnsContainer_Default].50d3c40a.min.css">:host(:not(.device-mobile-optim[...]
+<style data-href="https://static.parastorage.com/services/wix-thunderbolt/dist/group_7.882d8423.chunk.min.css">.QrIus{height:auto!important}.bsFmQ{overflow:hidden!important}
+/*# sourceMappingURL=group_7.882d8423.chunk.min.css.map*/</style>
+<title>Les Petits Rappeurs de Saint-Joseph-des-Carmes | Montréal-de-l'Aude</title>
+  <meta name="description" content="Choeur de 60 garçons, élèves de l'école Saint-Joseph-des-Carmes, dont le répertoire est essentiellement sacré. Ils vous proposent trois Cds dont vous pouvez [...]
+  <link rel="canonical" href="les-petits-rappeurs.html"/>
+  <meta property="og:title" content="Les Petits Rappeurs de Saint-Joseph-des-Carmes | Montréal-de-l'Aude"/>
+  <meta property="og:description" content="Choeur de 60 garçons, élèves de l'école Saint-Joseph-des-Carmes, dont le répertoire est essentiellement sacré. Ils vous proposent trois Cds dont vous p[...]
+  <meta property="og:image" content="/media/c1f88d_7cfad42567254f3a91068a859bdf5b33%7Emv2.png/v1/fit/w_2500,h_1330,al_c/c1f88d_7cfad42567254f3a91068a859bdf5b33%7Emv2.png"/>
+  <meta property="og:image:width" content="2500"/>
+  <meta property="og:image:height" content="1330"/>
+  <meta property="og:url" content="https://www.saintjosephdescarmes.com/les-petits-rappeurs"/>
+  <meta property="og:site_name" content="ecolestjoseph"/>
+  <meta property="og:type" content="website"/>
+  <meta name="google-site-verification" content="iHJCnvTarBRWvN7oRvdrP1LS5rbI-JmH9atyEdWy-1c"/>
+  <meta name="twitter:card" content="summary_large_image"/>
+  <meta name="twitter:title" content="Les Petits Rappeurs de Saint-Joseph-des-Carmes | Montréal-de-l'Aude"/>
+  <meta name="twitter:description" content="Choeur de 60 garçons, élèves de l'école Saint-Joseph-des-Carmes, dont le répertoire est essentiellement sacré. Ils vous proposent trois Cds dont vous [...]
+  <meta name="twitter:image" content="/media/c1f88d_7cfad42567254f3a91068a859bdf5b33%7Emv2.png/v1/fit/w_2500,h_1330,al_c/c1f88d_7cfad42567254f3a91068a859bdf5b33%7Emv2.png"/>
+<script type="speculationrules">{"prefetch":[{"tag":"mpa-prefetch-eager","where":{"and":[{"href_matches":"/*"},{"not":{"href_matches":"/les-petits-rappeurs"}}]},"eagerness":"eager"}]}</script>
+<style id="page-transitions">@view-transition {navigation: auto;types: SlideVertical}</style>
+<style rel="stylesheet" data-href="https://static.parastorage.com/services/profile-card-tpa-ooi/1.2922.0/ProfileCardViewerWidget.min.css">.sTfH9Kt.o__3gsFrv--madefor{--wbu-font-stack:var(--wix-font-st[...]
+<style id="css_masterPage">@font-face {font-family: 'avenir-lt-w01_85-heavy1475544'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/74290729-59ae-4129-87d0-2ee[...]
+}
+@font-face {font-family: 'avenir-lt-w01_85-heavy1475544'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/74290729-59ae-4129-87d0-2eec3974dce1/v1/avenir-lt-w01_[...]
+}@font-face {font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w10-light.woff2[...]
+}
+@font-face {font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w02-light.woff2'[...]
+}
+@font-face {font-family: 'din-next-w01-light'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/eca8b0cd-45d8-43cf-aee7-ca462bc5497c/v1/din-next-w01-light.woff2'[...]
+}@font-face {
+font-display: swap;
+font-family: wf_720d903ca2f543c397ec8b862;
+src: url("ufonts/c1f88d_720d903ca2f543c397ec8b862d8423ea/woff2/file.woff2") format("woff2"),
+url("ufonts/c1f88d_720d903ca2f543c397ec8b862d8423ea/woff/file.woff") format("woff"),
+url("ufonts/c1f88d_720d903ca2f543c397ec8b862d8423ea/ttf/file.ttf") format("ttf");
+}@font-face {font-family: 'didot-w01-italic'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/6a8685bf-8255-4762-98b8-54a1192acc7c/v1/didot-w05-italic.woff2') f[...]
+}
+@font-face {font-family: 'didot-w01-italic'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/6a8685bf-8255-4762-98b8-54a1192acc7c/v1/didot-w01-italic.woff2') fo[...]
+}@font-face {
+font-display: swap;
+font-family: wf_59cafb8629e242a194957b9c2;
+src: url("ufonts/c1f88d_59cafb8629e242a194957b9c22d8adcb/woff2/file.woff2") format("woff2"),
+url("ufonts/c1f88d_59cafb8629e242a194957b9c22d8adcb/woff/file.woff") format("woff"),
+url("ufonts/c1f88d_59cafb8629e242a194957b9c22d8adcb/ttf/file.ttf") format("ttf");
+}@font-face {font-family: 'josefin slab'; font-style: normal; font-weight: 700; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/josefinslab/v26/lW-5wjwOK3Ps5[...]
+}
+@font-face {font-family: 'josefin slab'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/josefinslab/v26/lW-5wjwOK3Ps5G[...]
+}
+@font-face {font-family: 'josefin slab'; font-style: italic; font-weight: 400; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/josefinslab/v26/lW-nwjwOK3Ps5G[...]
+}
+@font-face {font-family: 'josefin slab'; font-style: italic; font-weight: 700; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/josefinslab/v26/lW-nwjwOK3Ps5G[...]
+}@font-face {font-family: 'open sans'; font-style: italic; font-weight: 700; src: url('https://static.parastorage.com/fonts/v2/09e37a90-97bc-4292-863a-a9e5b278309d/v1/open sans.woff2') format('woff2')[...]
+}
+@font-face {font-family: 'open sans'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/e59e6f5c-7ac5-47cf-8fe5-22ee5f11aa42/v1/open sans.woff2') format('woff2');[...]
+}
+@font-face {font-family: 'open sans'; font-style: normal; font-weight: 700; src: url('https://static.parastorage.com/fonts/v2/66ed32a6-d63b-4f2e-9895-91f58fc7bde6/v1/open sans.woff2') format('woff2');[...]
+}
+@font-face {font-family: 'open sans'; font-style: italic; font-weight: 400; src: url('https://static.parastorage.com/fonts/v2/e3af1b1e-e84c-47bd-96ed-ea490697a5d3/v1/open sans.woff2') format('woff2');[...]
+}@font-face {font-family: 'signika'; font-style: normal; font-weight: 700; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/signika/v10/vEFU2_JTCgwQ5ejvE-oDE3[...]
+}
+@font-face {font-family: 'signika'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/signika/v10/vEFR2_JTCgwQ5ejvG18mBlp[...]
+}
+@font-face {font-family: 'signika'; font-style: normal; font-weight: 700; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/signika/v10/vEFU2_JTCgwQ5ejvE-oDE3d[...]
+}
+@font-face {font-family: 'signika'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/signika/v10/vEFR2_JTCgwQ5ejvG1EmBlp[...]
+}#masterPage:not(.landingPage) #PAGES_CONTAINER{margin-top:0px;margin-bottom:0px;}#masterPage.landingPage #SITE_HEADER{display:none;}#masterPage.landingPage #SITE_FOOTER{display:none;}#masterPage.land[...]
+				--wix-direction: ltr;
+--profileLayout: 0;
+--pictureStyle: 0;
+--profileAlignment: 0;
+--profileImageSize: 90px;
+--badge-layout: 0;
+--badge-size: 0;
+--badge-corner-radius: 10;
+--border-width-1: 1;
+--pw-cover-photo-opacity: 60;
+--pw-cover-photo-opacity-desktop: 60;
+--profileWidgetHeight: 250px;
+--pw-button-border-width: 1;
+--pw-button-responsive-border-width: 1;
+--pw-button-text-font-size-mobile: 16;
+--pw-button-corner-radius: 0;
+--pw-button-responsive-corner-radius: 0;
+--vertical-pw-corner-radius: 0;
+--badge-font: normal normal normal 16px/1.4em "open sans",sans-serif;
+--text-primary-font: normal normal normal 20px/1.4em "open sans",sans-serif;
+--text-secondary-font: normal normal normal 14px/1.4em "open sans",sans-serif;
+--pw-responsive-name-font: normal normal normal 28px/1.4em "open sans",sans-serif;
+--pw-name-font-mobile: normal normal normal 20px/1.4em "open sans",sans-serif;
+--title-font: normal normal normal 14px/1.4em "open sans",sans-serif;
+--title-responsive-font: normal normal normal 20px/1.4em "open sans",sans-serif;
+--title-mobile-font: normal normal normal 16px/1.4em "open sans",sans-serif;
+--pw-responsive-ff-font: normal normal normal 16px/1.4em "open sans",sans-serif;
+--pw-ff-font-mobile: normal normal normal 12px/1.4em "open sans",sans-serif;
+--button-font: normal normal normal 16px/1.4em "open sans",sans-serif;
+--pw-responsive-button-font: normal normal normal 16px/1.4em "open sans",sans-serif;
+--pw-button-font-mobile: normal normal normal 16px/1.4em "open sans",sans-serif;
+--text-color-primary: 80,80,80;
+--text-color-primary-rgb: 80,80,80;
+--text-color-primary-opacity: 1;
+--text-color-secondary: 80,80,80;
+--text-color-secondary-rgb: 80,80,80;
+--text-color-secondary-opacity: 1;
+--pw-responsive-name-color: 255,255,255;
+--pw-responsive-name-color-rgb: 255,255,255;
+--pw-responsive-name-color-opacity: 1;
+--pw-name-color-mobile: 80,80,80;
+--pw-name-color-mobile-rgb: 80,80,80;
+--pw-name-color-mobile-opacity: 1;
+--title-color: 80,80,80;
+--title-color-rgb: 80,80,80;
+--title-color-opacity: 1;
+--title-responsive-color: 255,255,255;
+--title-responsive-color-rgb: 255,255,255;
+--title-responsive-color-opacity: 1;
+--title-mobile-color: 80,80,80;
+--title-mobile-color-rgb: 80,80,80;
+--title-mobile-color-opacity: 1;
+--pw-responsive-ff-color: 255,255,255;
+--pw-responsive-ff-color-rgb: 255,255,255;
+--pw-responsive-ff-color-opacity: 1;
+--pw-ff-color-mobile: 80,80,80;
+--pw-ff-color-mobile-rgb: 80,80,80;
+--pw-ff-color-mobile-opacity: 1;
+--button-opacity-and-color: 170,144,85;
+--button-opacity-and-color-rgb: 170,144,85;
+--button-opacity-and-color-opacity: 1;
+--pw-responsive-button-color: 255,255,255;
+--pw-responsive-button-color-rgb: 255,255,255;
+--pw-responsive-button-color-opacity: 1;
+--pw-responsive-button-color-mobile: 255,255,255;
+--pw-responsive-button-color-mobile-rgb: 255,255,255;
+--pw-responsive-button-color-mobile-opacity: 1;
+--box-color: 255,255,255;
+--box-color-rgb: 255,255,255;
+--box-color-opacity: 1;
+--border-color: 80,80,80,0.2;
+--border-color-rgb: 80,80,80;
+--border-color-opacity: 0.2;
+--pw-cover-color: 170,144,85;
+--pw-cover-color-rgb: 170,144,85;
+--pw-cover-color-opacity: 1;
+--pw-cover-color-desktop: 170,144,85;
+--pw-cover-color-desktop-rgb: 170,144,85;
+--pw-cover-color-desktop-opacity: 1;
+--pw-cover-color-mobile: 170,144,85;
+--pw-cover-color-mobile-rgb: 170,144,85;
+--pw-cover-color-mobile-opacity: 1;
+--pw-button-font-color: 255,255,255;
+--pw-button-font-color-rgb: 255,255,255;
+--pw-button-font-color-opacity: 1;
+--pw-button-responsive-font-color: 170,144,85;
+--pw-button-responsive-font-color-rgb: 170,144,85;
+--pw-button-responsive-font-color-opacity: 1;
+--pw-button-border-color: 170,144,85;
+--pw-button-border-color-rgb: 170,144,85;
+--pw-button-border-color-opacity: 1;
+--pw-button-responsive-border-color: 255,255,255;
+--pw-button-responsive-border-color-rgb: 255,255,255;
+--pw-button-responsive-border-color-opacity: 1;
+--badge-font-style: normal;
+--badge-font-variant: normal;
+--badge-font-weight: normal;
+--badge-font-size: 16px;
+--badge-font-line-height: 1.4em;
+--badge-font-family: "open sans",sans-serif;
+--badge-font-text-decoration: none;
+--text-primary-font-style: normal;
+--text-primary-font-variant: normal;
+--text-primary-font-weight: normal;
+--text-primary-font-size: 20px;
+--text-primary-font-line-height: 1.4em;
+--text-primary-font-family: "open sans",sans-serif;
+--text-primary-font-text-decoration: none;
+--text-secondary-font-style: normal;
+--text-secondary-font-variant: normal;
+--text-secondary-font-weight: normal;
+--text-secondary-font-size: 14px;
+--text-secondary-font-line-height: 1.4em;
+--text-secondary-font-family: "open sans",sans-serif;
+--text-secondary-font-text-decoration: none;
+--pw-responsive-name-font-style: normal;
+--pw-responsive-name-font-variant: normal;
+--pw-responsive-name-font-weight: normal;
+--pw-responsive-name-font-size: 28px;
+--pw-responsive-name-font-line-height: 1.4em;
+--pw-responsive-name-font-family: "open sans",sans-serif;
+--pw-responsive-name-font-text-decoration: none;
+--pw-name-font-mobile-style: normal;
+--pw-name-font-mobile-variant: normal;
+--pw-name-font-mobile-weight: normal;
+--pw-name-font-mobile-size: 20px;
+--pw-name-font-mobile-line-height: 1.4em;
+--pw-name-font-mobile-family: "open sans",sans-serif;
+--pw-name-font-mobile-text-decoration: none;
+--title-font-style: normal;
+--title-font-variant: normal;
+--title-font-weight: normal;
+--title-font-size: 14px;
+--title-font-line-height: 1.4em;
+--title-font-family: "open sans",sans-serif;
+--title-font-text-decoration: none;
+--title-responsive-font-style: normal;
+--title-responsive-font-variant: normal;
+--title-responsive-font-weight: normal;
+--title-responsive-font-size: 20px;
+--title-responsive-font-line-height: 1.4em;
+--title-responsive-font-family: "open sans",sans-serif;
+--title-responsive-font-text-decoration: none;
+--title-mobile-font-style: normal;
+--title-mobile-font-variant: normal;
+--title-mobile-font-weight: normal;
+--title-mobile-font-size: 16px;
+--title-mobile-font-line-height: 1.4em;
+--title-mobile-font-family: "open sans",sans-serif;
+--title-mobile-font-text-decoration: none;
+--pw-responsive-ff-font-style: normal;
+--pw-responsive-ff-font-variant: normal;
+--pw-responsive-ff-font-weight: normal;
+--pw-responsive-ff-font-size: 16px;
+--pw-responsive-ff-font-line-height: 1.4em;
+--pw-responsive-ff-font-family: "open sans",sans-serif;
+--pw-responsive-ff-font-text-decoration: none;
+--pw-ff-font-mobile-style: normal;
+--pw-ff-font-mobile-variant: normal;
+--pw-ff-font-mobile-weight: normal;
+--pw-ff-font-mobile-size: 12px;
+--pw-ff-font-mobile-line-height: 1.4em;
+--pw-ff-font-mobile-family: "open sans",sans-serif;
+--pw-ff-font-mobile-text-decoration: none;
+--button-font-style: normal;
+--button-font-variant: normal;
+--button-font-weight: normal;
+--button-font-size: 16px;
+--button-font-line-height: 1.4em;
+--button-font-family: "open sans",sans-serif;
+--button-font-text-decoration: none;
+--pw-responsive-button-font-style: normal;
+--pw-responsive-button-font-variant: normal;
+--pw-responsive-button-font-weight: normal;
+--pw-responsive-button-font-size: 16px;
+--pw-responsive-button-font-line-height: 1.4em;
+--pw-responsive-button-font-family: "open sans",sans-serif;
+--pw-responsive-button-font-text-decoration: none;
+--pw-button-font-mobile-style: normal;
+--pw-button-font-mobile-variant: normal;
+--pw-button-font-mobile-weight: normal;
+--pw-button-font-mobile-size: 16px;
+--pw-button-font-mobile-line-height: 1.4em;
+--pw-button-font-mobile-family: "open sans",sans-serif;
+--pw-button-font-mobile-text-decoration: none;
+--profileImageDisplay: block;
+--profileImageBorderRadius: 50%;
+--coverButtonsBoxMarginLeft: initial;
+--coverButtonsBoxPosition: initial;
+--coverButtonsBoxTop: initial;
+--coverButtonsBoxInsetInlineEnd: initial;
+--coverButtonsBoxMarginTop: 38px;
+--repositionModeButtonsFlexDirection: row;
+--repositionModeButtonsMarginInlineStart: 34px;
+--repositionModeButtonsMarginInlineEnd: initial;
+--coverPhotoContainerInsetInlineStart: 24px;
+--coverPhotoContainerInsetInlineEnd: initial;
+--contentLayoutFlexDirection: row;
+--contentLayoutAlignItems: initial;
+--contentLayoutPaddingInlineStart: 30px;
+--contentLayoutPaddingInlineEnd: 16px;
+--contentAlignItems: flex-end;
+--contentMarginBottom: 30px;
+--contentMarginInlineEnd: initial;
+--contentMarginInlineStart: 24px;
+--contentJustifyContent: space-between;
+--contentWidth: initial;
+--contentFlexDirection: row;
+--detailsAndPhotoFlexDirection: initial;
+--detailsAndPhotoAlignItems: initial;
+--memberDetailsPaddingInlineStart: initial;
+--memberDetailsPaddingInlineEnd: initial;
+--memberDetailsMarginTop: initial;
+--memberDetailsAlignItems: initial;
+--memberDetailsMaxWidth: 500px;
+--memberDetailsMarginBottom: initial;
+--memberDetailsTextAlign: start;
+--profilePhotoMarginInlineEnd: 24px;
+--profilePhotoMarginInlineStart: 0;
+--badgeListContainerJustifyContent: initial;
+--badgeListJustifyContent: center;
+--numbersBoxPosition: initial;
+--numbersBoxJustifyContent: flex-start;
+--nameContainerMaxWidth: initial;
+--nameContainerWidth: initial;
+--nameContainerJustifyContent: flex-start;
+--nameBoxTextMaxWidth: 470px;
+--titleContainerTextAlign: initial;
+--titleContainerDisplay: initial;
+--titleContainerFlexDirection: initial;
+--titleMaxWidth: 470px;
+--buttonsBoxPosition: initial;
+--buttonsBoxTop: initial;
+--buttonsBoxInsetInlineEnd: initial;
+--moreActionsMarginLeft: initial;
+--moreActionsMarginRight: -14px;
+--badgeFont: open sans,sans-serif;
+--badgeIconHeight: 12px;
+--badgeIconWidth: initial;
+--badgeIconMaxWidth: 30px;
+--badgeIconMargin: 0 4px 0 0;
+--remainderWrapperHeight: 20px;
+--remainderWrapperMinWidth: 30px;
+--badgeWrapperHeight: 20px;
+--badgeWrapperWidth: initial;
+--badgeWrapperPadding: 0 8px;
+--badgeTextDisplay: initial;
+--badgeIconDisplay: flex;
+--badgeDefaultIconDisplay: none;
+--remainderBadgeColor: rgb(80, 80, 80);
+				--wix-color-1: 255,255,255;
+--wix-color-2: 207,204,204;
+--wix-color-3: 168,170,171;
+--wix-color-4: 146,146,146;
+--wix-color-5: 80,80,80;
+--wix-color-6: 227,215,189;
+--wix-color-7: 198,183,149;
+--wix-color-8: 170,144,85;
+--wix-color-9: 113,96,57;
+--wix-color-10: 57,48,28;
+--wix-color-11: 180,193,221;
+--wix-color-12: 140,155,187;
+--wix-color-13: 95,114,152;
+--wix-color-14: 30,58,118;
+--wix-color-15: 15,29,59;
+--wix-color-16: 244,192,175;
+--wix-color-17: 233,159,134;
+--wix-color-18: 222,80,33;
+--wix-color-19: 148,54,22;
+--wix-color-20: 74,27,11;
+--wix-color-21: 244,234,177;
+--wix-color-22: 233,219,137;
+--wix-color-23: 222,195,40;
+--wix-color-24: 148,130,27;
+--wix-color-25: 74,65,13;
+--wix-color-26: 255,255,255;
+--wix-color-27: 80,80,80;
+--wix-color-28: 207,204,204;
+--wix-color-29: 168,170,171;
+--wix-color-30: 146,146,146;
+--wix-color-31: 170,144,85;
+--wix-color-32: 15,29,59;
+--wix-color-33: 233,219,137;
+--wix-color-34: 222,195,40;
+--wix-color-35: 80,80,80;
+--wix-color-36: 255,255,255;
+--wix-color-37: 146,146,146;
+--wix-color-38: 170,144,85;
+--wix-color-39: 170,144,85;
+--wix-color-40: 255,255,255;
+--wix-color-41: 255,255,255;
+--wix-color-42: 170,144,85;
+--wix-color-43: 170,144,85;
+--wix-color-44: 168,170,171;
+--wix-color-45: 168,170,171;
+--wix-color-46: 255,255,255;
+--wix-color-47: 255,255,255;
+--wix-color-48: 170,144,85;
+--wix-color-49: 170,144,85;
+--wix-color-50: 170,144,85;
+--wix-color-51: 170,144,85;
+--wix-color-52: 255,255,255;
+--wix-color-53: 255,255,255;
+--wix-color-54: 168,170,171;
+--wix-color-55: 168,170,171;
+--wix-font-Title: normal normal normal 36px/1.4em avenir-lt-w01_85-heavy1475544,sans-serif;
+--wix-font-Title-style: normal;
+--wix-font-Title-variant: normal;
+--wix-font-Title-weight: normal;
+--wix-font-Title-size: 36px;
+--wix-font-Title-line-height: 1.4em;
+--wix-font-Title-family: avenir-lt-w01_85-heavy1475544,sans-serif;
+--wix-font-Title-text-decoration: none;
+--wix-font-Menu: normal normal normal 16px/1.4em din-next-w01-light,sans-serif;
+--wix-font-Menu-style: normal;
+--wix-font-Menu-variant: normal;
+--wix-font-Menu-weight: normal;
+--wix-font-Menu-size: 16px;
+--wix-font-Menu-line-height: 1.4em;
+--wix-font-Menu-family: din-next-w01-light,sans-serif;
+--wix-font-Menu-text-decoration: none;
+--wix-font-Page-title: normal normal normal 46px/1.4em avenir-lt-w01_85-heavy1475544,sans-serif;
+--wix-font-Page-title-style: normal;
+--wix-font-Page-title-variant: normal;
+--wix-font-Page-title-weight: normal;
+--wix-font-Page-title-size: 46px;
+--wix-font-Page-title-line-height: 1.4em;
+--wix-font-Page-title-family: avenir-lt-w01_85-heavy1475544,sans-serif;
+--wix-font-Page-title-text-decoration: none;
+--wix-font-Heading-XL: normal normal bold 51px/1.4em wfont_c1f88d_720d903ca2f543c397ec8b862d8423ea,wf_720d903ca2f543c397ec8b862,orig_optimusprincepssemibold;
+--wix-font-Heading-XL-style: normal;
+--wix-font-Heading-XL-variant: normal;
+--wix-font-Heading-XL-weight: bold;
+--wix-font-Heading-XL-size: 51px;
+--wix-font-Heading-XL-line-height: 1.4em;
+--wix-font-Heading-XL-family: wfont_c1f88d_720d903ca2f543c397ec8b862d8423ea,wf_720d903ca2f543c397ec8b862,orig_optimusprincepssemibold;
+--wix-font-Heading-XL-text-decoration: none;
+--wix-font-Heading-L: normal normal bold 30px/1.4em didot-w01-italic,serif;
+--wix-font-Heading-L-style: normal;
+--wix-font-Heading-L-variant: normal;
+--wix-font-Heading-L-weight: bold;
+--wix-font-Heading-L-size: 30px;
+--wix-font-Heading-L-line-height: 1.4em;
+--wix-font-Heading-L-family: didot-w01-italic,serif;
+--wix-font-Heading-L-text-decoration: none;
+--wix-font-Heading-M: normal normal normal 24px/1.4em avenir-lt-w01_85-heavy1475544,sans-serif;
+--wix-font-Heading-M-style: normal;
+--wix-font-Heading-M-variant: normal;
+--wix-font-Heading-M-weight: normal;
+--wix-font-Heading-M-size: 24px;
+--wix-font-Heading-M-line-height: 1.4em;
+--wix-font-Heading-M-family: avenir-lt-w01_85-heavy1475544,sans-serif;
+--wix-font-Heading-M-text-decoration: none;
+--wix-font-Heading-S: normal normal normal 36px/1.4em wfont_c1f88d_59cafb8629e242a194957b9c22d8adcb,wf_59cafb8629e242a194957b9c2,orig_optimusprinceps;
+--wix-font-Heading-S-style: normal;
+--wix-font-Heading-S-variant: normal;
+--wix-font-Heading-S-weight: normal;
+--wix-font-Heading-S-size: 36px;
+--wix-font-Heading-S-line-height: 1.4em;
+--wix-font-Heading-S-family: wfont_c1f88d_59cafb8629e242a194957b9c22d8adcb,wf_59cafb8629e242a194957b9c2,orig_optimusprinceps;
+--wix-font-Heading-S-text-decoration: none;
+--wix-font-Body-L: normal normal normal 18px/1.4em "josefin slab",serif;
+--wix-font-Body-L-style: normal;
+--wix-font-Body-L-variant: normal;
+--wix-font-Body-L-weight: normal;
+--wix-font-Body-L-size: 18px;
+--wix-font-Body-L-line-height: 1.4em;
+--wix-font-Body-L-family: "josefin slab",serif;
+--wix-font-Body-L-text-decoration: none;
+--wix-font-Body-M: normal normal normal 16px/1.4em "open sans",sans-serif;
+--wix-font-Body-M-style: normal;
+--wix-font-Body-M-variant: normal;
+--wix-font-Body-M-weight: normal;
+--wix-font-Body-M-size: 16px;
+--wix-font-Body-M-line-height: 1.4em;
+--wix-font-Body-M-family: "open sans",sans-serif;
+--wix-font-Body-M-text-decoration: none;
+--wix-font-Body-S: normal normal normal 16px/1.4em signika,sans-serif;
+--wix-font-Body-S-style: normal;
+--wix-font-Body-S-variant: normal;
+--wix-font-Body-S-weight: normal;
+--wix-font-Body-S-size: 16px;
+--wix-font-Body-S-line-height: 1.4em;
+--wix-font-Body-S-family: signika,sans-serif;
+--wix-font-Body-S-text-decoration: none;
+--wix-font-Body-XS: normal normal normal 12px/1.4em din-next-w01-light,sans-serif;
+--wix-font-Body-XS-style: normal;
+--wix-font-Body-XS-variant: normal;
+--wix-font-Body-XS-weight: normal;
+--wix-font-Body-XS-size: 12px;
+--wix-font-Body-XS-line-height: 1.4em;
+--wix-font-Body-XS-family: din-next-w01-light,sans-serif;
+--wix-font-Body-XS-text-decoration: none;
+--wix-font-LIGHT: normal normal normal 12px/1.4em HelveticaNeueW01-45Ligh;
+--wix-font-LIGHT-style: normal;
+--wix-font-LIGHT-variant: normal;
+--wix-font-LIGHT-weight: normal;
+--wix-font-LIGHT-size: 12px;
+--wix-font-LIGHT-line-height: 1.4em;
+--wix-font-LIGHT-family: HelveticaNeueW01-45Ligh;
+--wix-font-LIGHT-text-decoration: none;
+--wix-font-MEDIUM: normal normal normal 12px/1.4em HelveticaNeueW01-55Roma;
+--wix-font-MEDIUM-style: normal;
+--wix-font-MEDIUM-variant: normal;
+--wix-font-MEDIUM-weight: normal;
+--wix-font-MEDIUM-size: 12px;
+--wix-font-MEDIUM-line-height: 1.4em;
+--wix-font-MEDIUM-family: HelveticaNeueW01-55Roma;
+--wix-font-MEDIUM-text-decoration: none;
+--wix-font-STRONG: normal normal normal 12px/1.4em HelveticaNeueW01-65Medi;
+--wix-font-STRONG-style: normal;
+--wix-font-STRONG-variant: normal;
+--wix-font-STRONG-weight: normal;
+--wix-font-STRONG-size: 12px;
+--wix-font-STRONG-line-height: 1.4em;
+--wix-font-STRONG-family: HelveticaNeueW01-65Medi;
+--wix-font-STRONG-text-decoration: none;
+		}
+
+
+
+
+
+
+
+#comp-jid1u5x4{--brw:1px;--brd:var(--color_15);--shd:none;--rd:0px;--sepw:0px;--sep:var(--color_15);--itemBGColorTrans:background-color 0.4s ease 0s;--bgh:var(--color_11);--txth:var(--color_14);--alph[...]
+<style id="css_ib0se">@font-face {font-family: 'corben'; font-style: normal; font-weight: 700; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/corben/v21/LYj[...]
+}
+@font-face {font-family: 'corben'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/corben/v21/LYjDdGzzklQtCMpNqQNFh1gnV[...]
+}
+@font-face {font-family: 'corben'; font-style: normal; font-weight: 700; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/corben/v21/LYjAdGzzklQtCMpFHCZQqnoqf[...]
+}
+@font-face {font-family: 'corben'; font-style: normal; font-weight: 400; src: url('https://static.parastorage.com/tag-bundler/api/v1/fonts-cache/googlefont/woff2/s/corben/v21/LYjDdGzzklQtCMpNpwNFh1gnV[...]
+}@keyframes motion-fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: var(--comp-opacity, 1); }
+}@keyframes motion-expandIn {
+  0.00009999999999999999% { transform: translateX(calc(var(--motion-width, 100%) * var(--motion-translate-x))) translateY(calc(var(--motion-height, 100%) * var(--motion-translate-y))) scale(var(--moti[...]
+  100% { transform: translateX(calc(var(--motion-width, 100%) * var(--motion-translate-x))) translateY(calc(var(--motion-height, 100%) * var(--motion-translate-y))) scale(1) translateX(calc(var(--moti[...]
+}#ib0se{left:0;margin-left:0;width:100%;min-width:0;}#masterPage{--pinned-layers-in-page:0;}[data-mesh-id=Containerib0seinlineContent]{height:auto;width:100%;}[data-mesh-id=Containerib0seinlineContent[...]
+<style id="stylableCss_ib0se"></style>
+<style id="compCssMappers_ib0se">#ib0se{width:auto;min-height:40px;}#pageBackground_ib0se{--bg-position:fixed;--fill-layer-image-opacity:1;--bg-overlay-color:rgb(var(--color_11));--bg-gradient:none;}#[...]
+
+  <!-- DÉBUT DE LA MODIFICATION -->
+  <style>
+    /*
+      Ce style remplace l'arrière-plan de la page pour utiliser l'image des anges.
+      L'identifiant #pageBackground_ib0se cible la couche de fond principale de cette page spécifique.
+      !important assure que notre style a la priorité sur ceux définis par Wix.
+    */
+    #pageBackground_ib0se {
+      background-image: url('/petits-rappeurs.png') !important;
+      background-size: cover !important; /* L'image couvre tout l'arrière-plan */
+      background-position: center center !important; /* L'image est centrée */
+      background-repeat: no-repeat !important; /* L'image ne se répète pas */
+      --bg-overlay-color: rgba(0, 0, 0, 0.3) !important; /* Ajoute un léger voile sombre pour la lisibilité */
+    }
+  </style>
+  <!-- FIN DE LA MODIFICATION -->
+
+</head>
+<body class='' >
+<script type="text/javascript">
+    var bodyCacheable = true;
+    
+    var exclusionReason = {"shouldRender":true,"forced":false};
+    var ssrInfo = {"cacheExclusionReason":"","renderBodyTime":661,"renderTimeStamp":1777920273761}
+</script>
+
+
+
+
+
+
+
+    <!--pageHtmlEmbeds.bodyStart start-->
+    <script type="wix/htmlEmbeds" id="pageHtmlEmbeds.bodyStart start"></script>
+    
+    <script type="wix/htmlEmbeds" id="pageHtmlEmbeds.bodyStart end"></script>
+    <!--pageHtmlEmbeds.bodyStart end-->
+
+
+
+
+<script id="wix-first-paint">
+    if (window.ResizeObserver &&
+        (!window.PerformanceObserver || !PerformanceObserver.supportedEntryTypes || PerformanceObserver.supportedEntryTypes.indexOf('paint') === -1)) {
+        new ResizeObserver(function (entries, observer) {
+            entries.some(function (entry) {
+                var contentRect = entry.contentRect;
+                if (contentRect.width > 0 && contentRect.height > 0) {
+                    requestAnimationFrame(function (now) {
+                        window.wixFirstPaint = now;
+                        dispatchEvent(new CustomEvent('wixFirstPaint'));
+                    });
+                    observer.disconnect();
+                    return true;
+                }
+            });
+        }).observe(document.body);
+    }
+</script>
+
+
+<script id="scroll-bar-width-calculation">
+    const div = document.createElement('div')
+    div.style.overflowY = 'scroll'
+    div.style.width = '50px'
+    div.style.height = '50px'
+    div.style.visibility = 'hidden'
+    document.body.appendChild(div)
+    const scrollbarWidth= div.offsetWidth - div.clientWidth
+    document.body.removeChild(div)
+    if(scrollbarWidth > 0){
+        document.body.style.setProperty('--scrollbar-width', `${scrollbarWidth}px`)
+    }
+</script>
+
+
+
+
+
+
+
+    <!-- domStoreHtml -->
+    <svg data-dom-store style="display:none"><defs id="dom-store-defs"></defs></svg>
+    
+
+<div id="SITE_CONTAINER"><div id="main_MF" class="main_MF"><div id="SCROLL_TO_TOP" class="Vd6aQZ ignore-focus SCROLL_TO_TOP" role="region" tabindex="-1" aria-label="top of page"><span class="mHZSwn">t[...]
+    <g>
+        <path d="M187.494 88.591c-2.339-4.226-6.153-6.432-10.448-6.023-4.103.378-7.784 3.099-8.955 6.617a7.41 7.41 0 0 0-.303 3.523c-2.905 1.704-5.926 4.108-9.054 6.598a325.56 325.56 0 0 1-3.125 2.466[...]
+    </g>
+</svg>
+</div></div><!--/$--><!--$--><div class="comp-jie96xub FubTgk" id="comp-jie96xub" aria-disabled="false"><a data-testid="linkElement" href="ecoute-cd1.html" target="_self" class="uDW_Qe wixui-button Pl[...]
+
+<p class="font_7 wixui-rich-text__text" style="font-size:20px; text-align:justify;"><span style="font-size:20px;" class="wixui-rich-text__text*
