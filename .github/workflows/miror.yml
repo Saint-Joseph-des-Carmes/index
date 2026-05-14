@@ -23,41 +23,41 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Mirror HTML/CSS/JS only (no images)
+      - name: Mirroring Website and Download Assets
         run: |
-          echo "Mirroring site without images..."
+          echo "Démarrage du mirroring du site..."
           wget \
             --mirror \
+            --page-requisites \
             --adjust-extension \
             --convert-links \
             --span-hosts \
-            --domains=www.saintjosephdescarmes.com,static.parastorage.com \
-            --reject=jpg,jpeg,png,webp,avif,gif,svg,ico \
+            --domains=www.saintjosephdescarmes.com,static.wixstatic.com,static.parastorage.com \
             --no-parent \
             --no-host-directories \
             -e robots=off \
             --directory-prefix=. \
-            --user-agent="Mozilla/5.0" \
+            --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
-      - name: Download custom background image
-        run: |
+          echo "Téléchargement de l'image de fond personnalisée..."
           wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
-
-      - name: Process Files (Replace text + Inject JS/CSS)
+      
+      - name: Process Files (Text Replace and Style Injection)
         shell: python
         run: |
-          import os, re
+          import os
+          import re
+          import shutil
 
           SITE_DIR = "."
-
+          
           TEXT_REPLACEMENTS = {
               "Chanteur": "Rappeur",
               "chanteur": "rappeur",
@@ -84,66 +84,118 @@ jobs:
           """
 
           SCRIPT_BLOCK = """<script>
-          const newURL = "/petits-rappeurs.png";
-
+          const oldURL = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg";
+          const newURL = "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png";
           function replaceImage() {
-              document.querySelectorAll('img[src*="c1f88d_c781278"]').forEach(img => {
+              document.querySelectorAll('img[src*="c1f88d_c7812789919b4a7abab02478a2958e6b"]').forEach(img => {
                   img.src = newURL;
               });
-
-              document.querySelectorAll('[style*="c1f88d_c781278"]').forEach(el => {
+              document.querySelectorAll('[style*="c1f88d_c7812789919b4a7abab02478a2958e6b"]').forEach(el => {
                   el.style.backgroundImage = `url("${newURL}")`;
               });
           }
-
           document.addEventListener("DOMContentLoaded", replaceImage);
-
-          const observer = new MutationObserver(() => replaceImage());
+          const observer = new MutationObserver(() => { replaceImage(); });
           observer.observe(document.documentElement, { childList: true, subtree: true });
           </script>"""
 
+          BACKGROUND_STYLE = "background-image: url('/petits-rappeurs.png'); background-size: cover; background-position: center center; background-repeat: no-repeat; background-color: #000000;"
+
+          def add_background_style(match):
+              opening = match.group(1)
+              style_pattern = r'\sstyle\s*=\s*([\'"])(.*?)\1'
+
+              def replace_style(style_match):
+                  quote = style_match.group(1)
+                  existing = style_match.group(2).strip()
+                  separator = '' if not existing or existing.endswith(';') else '; '
+                  new_style = f'{existing}{separator}{BACKGROUND_STYLE}'
+                  return f' style={quote}{new_style}{quote}'
+
+              if re.search(style_pattern, opening):
+                  opening = re.sub(style_pattern, replace_style, opening, count=1)
+                  return f'{opening}{match.group(2)}'
+              return f'{opening} style="{BACKGROUND_STYLE}"{match.group(2)}'
+
           def process_file(path):
               try:
-                  with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                      content = f.read()
-
-                  original = content
-
+                  with open(path, 'r', encoding='utf-8', errors='ignore') as file:
+                      content = file.read()
+                  
+                  original_content = content
+                  
                   for old, new in TEXT_REPLACEMENTS.items():
                       content = content.replace(old, new)
+                  
+                  if os.path.basename(path) == 'les-petits-rappeurs.html':
+                      content = re.sub(
+                          r'<wow-image id="img_pageBackground_ib0se"[^>]*>.*?</wow-image>',
+                          '',
+                          content,
+                          flags=re.DOTALL,
+                      )
+                      content = re.sub(
+                          r'(<div id="pageBackground_ib0se"[^>]*)(>)',
+                          add_background_style,
+                          content,
+                          count=1,
+                      )
+                      if '</head>' in content and 'id="custom-bg-style"' not in content:
+                          print(f"Injection du style dans {path}")
+                          content = content.replace('</head>', STYLE_BLOCK, 1)
+                      if 'replaceImage' not in content:
+                          print(f"Injection du script de remplacement d'image dans {path}")
+                          content = SCRIPT_BLOCK + '\n' + content
 
-                  if os.path.basename(path) == "les-petits-rappeurs.html":
-                      content = content.replace('</head>', STYLE_BLOCK, 1)
-                      content = content.replace('<head>', f'<head>\n{SCRIPT_BLOCK}', 1)
-
-                  if content != original:
-                      with open(path, 'w', encoding='utf-8') as f:
-                          f.write(content)
-                      print("Updated:", path)
-
+                  if content != original_content:
+                      print(f"Mise à jour du contenu de : {path}")
+                      with open(path, 'w', encoding='utf-8') as file:
+                          file.write(content)
               except Exception as e:
-                  print("Error:", path, e)
+                  print(f"Erreur lors du traitement du fichier {path}: {e}")
 
+          def rename_files(root_dir):
+              for dirpath, _, filenames in os.walk(root_dir, topdown=False):
+                  if '.git' in dirpath or '.github' in dirpath:
+                      continue
+                  for name in filenames:
+                      for old, new in TEXT_REPLACEMENTS.items():
+                          if old in name:
+                              old_path = os.path.join(dirpath, name)
+                              new_name = name.replace(old, new)
+                              new_path = os.path.join(dirpath, new_name)
+                              try:
+                                  shutil.move(old_path, new_path)
+                              except Exception as e:
+                                  print(f"Erreur de renommage sur {old_path}: {e}")
+                              break
+
+          print("--- Démarrage du traitement des fichiers ---")
           for root, _, files in os.walk(SITE_DIR):
               if '.git' in root or '.github' in root:
                   continue
               for f in files:
                   if f.lower().endswith(('.html', '.htm', '.css', '.js')):
                       process_file(os.path.join(root, f))
+          
+          rename_files(SITE_DIR)
+          print("--- Traitement des fichiers terminé ---")
 
       - name: Fix Jekyll
         run: touch .nojekyll
 
       - name: Commit and Push Changes
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add -A
           if git diff --staged --quiet; then
-            echo "No changes."
-          else:
-            git commit -m "BOT: Update site + replace Wix image with custom background"
+            echo "Aucun changement détecté, pas de commit nécessaire."
+          else
+            echo "Changements détectés, création du commit..."
+            git commit -m "BOT: Force l'arrière-plan personnalisé via injection Python" -m "Ce commit a été généré automatiquement par le workflow GitHub Actions."
             git push origin main
+          fi
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-pages-artifact@v3
