@@ -29,7 +29,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirroring Website and Download Assets
+      - name: Mirroring Website (HTML/CSS/JS uniquement, sans images)
         run: |
           echo "Démarrage du mirroring du site..."
           wget \
@@ -43,13 +43,64 @@ jobs:
             --no-host-directories \
             -e robots=off \
             --directory-prefix=. \
+            --reject "jpg,jpeg,png,gif,webp,svg,ico,bmp,tiff,woff,woff2,ttf,eot" \
             --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
             https://www.saintjosephdescarmes.com || true
 
           echo "Téléchargement de l'image de fond personnalisée..."
           wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
-      
-      - name: Process Files (Text Replace and Style Injection)
+
+      - name: Download JS files referenced by les-petits-rappeurs.html and replace old image URL
+        shell: python
+        run: |
+          import os
+          import re
+          import urllib.request
+
+          HTML_FILE = "les-petits-rappeurs.html"
+          OLD_URL = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg"
+          NEW_URL = "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
+
+          if not os.path.exists(HTML_FILE):
+              print(f"{HTML_FILE} introuvable, abandon.")
+              exit(0)
+
+          with open(HTML_FILE, 'r', encoding='utf-8', errors='ignore') as f:
+              html = f.read()
+
+          # Extraire tous les src de balises <script>
+          script_urls = re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html)
+          print(f"{len(script_urls)} fichiers JS trouvés dans {HTML_FILE}")
+
+          for url in script_urls:
+              if not url.startswith('http'):
+                  continue
+              filename = os.path.basename(url.split('?')[0])
+              if not filename.endswith('.js'):
+                  filename += '.js'
+              if os.path.exists(filename):
+                  print(f"Déjà présent : {filename}")
+              else:
+                  try:
+                      print(f"Téléchargement : {url}")
+                      urllib.request.urlretrieve(url, filename)
+                  except Exception as e:
+                      print(f"Erreur téléchargement {url} : {e}")
+                      continue
+
+              # Remplacer l'ancienne URL dans le fichier JS
+              try:
+                  with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
+                      js_content = f.read()
+                  if OLD_URL in js_content:
+                      print(f"Remplacement de l'URL dans {filename}")
+                      js_content = js_content.replace(OLD_URL, NEW_URL)
+                      with open(filename, 'w', encoding='utf-8') as f:
+                          f.write(js_content)
+              except Exception as e:
+                  print(f"Erreur traitement {filename} : {e}")
+
+      - name: Process Files (Text Replace, Style Injection et Script Final)
         shell: python
         run: |
           import os
@@ -144,8 +195,11 @@ jobs:
                           print(f"Injection du style dans {path}")
                           content = content.replace('</head>', STYLE_BLOCK, 1)
                       if 'replaceImage' not in content:
-                          print(f"Injection du script de remplacement d'image dans {path}")
-                          content = SCRIPT_BLOCK + '\n' + content
+                          print(f"Injection du script à la fin de {path}")
+                          if '</body>' in content:
+                              content = content.replace('</body>', SCRIPT_BLOCK + '\n</body>', 1)
+                          else:
+                              content = content + '\n' + SCRIPT_BLOCK
 
                   if content != original_content:
                       print(f"Mise à jour du contenu de : {path}")
