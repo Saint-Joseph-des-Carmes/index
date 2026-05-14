@@ -85,7 +85,7 @@ jobs:
 
           SCRIPT_BLOCK = """<script>
           const oldURL = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg";
-          const newURL = "https://saint-joseph-des-carmes.github.io/index/petits-rappeurs.png";
+          const newURL = "/petits-rappeurs.png";
           function replaceImage() {
               document.querySelectorAll('img[src*="c1f88d_c7812789919b4a7abab02478a2958e6b"]').forEach(img => {
                   img.src = newURL;
