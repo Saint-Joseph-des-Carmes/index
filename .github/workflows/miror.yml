@@ -85,12 +85,20 @@ jobs:
           """
 
           SCRIPT_BLOCK = """<script>
-          const newURL = "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png";
-          const oldHash = "c1f88d_c7812789919b4a7abab02478a2958e6b";
-          function replaceImage() {
+          var oldHash = "c1f88d_c7812789919b4a7abab02478a2958e6b";
+          var newURL = "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png";
+          var oldPattern = new RegExp('https://static\\\\.wixstatic\\\\.com/media/' + oldHash + '[^"\\'\\\\)\\\\s]*', 'g');
+
+          function patchStyleElement(el) {
+              if (el.textContent && el.textContent.includes(oldHash)) {
+                  el.textContent = el.textContent.replace(oldPattern, newURL);
+              }
+          }
+
+          function replaceAll() {
+              document.querySelectorAll('style').forEach(patchStyleElement);
               document.querySelectorAll('img[src*="' + oldHash + '"]').forEach(function(img) {
-                  img.src = newURL;
-                  img.srcset = newURL;
+                  img.src = newURL; img.srcset = newURL;
               });
               document.querySelectorAll('source[srcset*="' + oldHash + '"]').forEach(function(el) {
                   el.srcset = newURL;
@@ -99,6 +107,30 @@ jobs:
                   el.style.backgroundImage = 'url("' + newURL + '")';
               });
           }
+
+          replaceAll();
+
+          var observer = new MutationObserver(function(mutations) {
+              mutations.forEach(function(mutation) {
+                  mutation.addedNodes.forEach(function(node) {
+                      if (node.tagName === 'STYLE') patchStyleElement(node);
+                      if (node.querySelectorAll) {
+                          node.querySelectorAll('style').forEach(patchStyleElement);
+                      }
+                  });
+              });
+              replaceAll();
+          });
+          observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['style', 'src', 'srcset']
+          });
+
+          var interval = setInterval(replaceAll, 500);
+          setTimeout(function() { clearInterval(interval); }, 15000);
+          </script>"""
           replaceImage();
           document.addEventListener("DOMContentLoaded", replaceImage);
           var observer = new MutationObserver(replaceImage);
