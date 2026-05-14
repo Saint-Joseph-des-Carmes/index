@@ -1,5 +1,5 @@
 name: Mirror, Fix, and Deploy Site
- 
+
 on:
   push:
     branches:
@@ -50,7 +50,7 @@ jobs:
           echo "Téléchargement de l'image de fond personnalisée..."
           wget -O petits-rappeurs.png "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png"
 
-      - name: Process Files (Text Replace, Style Injection et Script Final)
+      - name: Process Files
         shell: python
         run: |
           import os
@@ -85,19 +85,31 @@ jobs:
           """
 
           SCRIPT_BLOCK = """<script>
-          const oldURL = "https://static.wixstatic.com/media/c1f88d_c7812789919b4a7abab02478a2958e6b~mv2_d_3307_2205_s_2.jpg";
           const newURL = "https://raw.githubusercontent.com/JavaBatchCSS/publique/refs/heads/master/petits-rappeurs.png";
+          const oldHash = "c1f88d_c7812789919b4a7abab02478a2958e6b";
           function replaceImage() {
-              document.querySelectorAll('img[src*="c1f88d_c7812789919b4a7abab02478a2958e6b"]').forEach(img => {
+              document.querySelectorAll('img[src*="' + oldHash + '"]').forEach(function(img) {
                   img.src = newURL;
+                  img.srcset = newURL;
               });
-              document.querySelectorAll('[style*="c1f88d_c7812789919b4a7abab02478a2958e6b"]').forEach(el => {
+              document.querySelectorAll('source[srcset*="' + oldHash + '"]').forEach(function(el) {
+                  el.srcset = newURL;
+              });
+              document.querySelectorAll('[style*="' + oldHash + '"]').forEach(function(el) {
                   el.style.backgroundImage = 'url("' + newURL + '")';
               });
           }
+          replaceImage();
           document.addEventListener("DOMContentLoaded", replaceImage);
-          const observer = new MutationObserver(() => { replaceImage(); });
-          observer.observe(document.documentElement, { childList: true, subtree: true });
+          var observer = new MutationObserver(replaceImage);
+          observer.observe(document.documentElement, {
+              childList: true,
+              subtree: true,
+              attributes: true,
+              attributeFilter: ['style', 'src', 'srcset']
+          });
+          var interval = setInterval(replaceImage, 500);
+          setTimeout(function() { clearInterval(interval); }, 15000);
           </script>"""
 
           BACKGROUND_STYLE = "background-image: url('/petits-rappeurs.png'); background-size: cover; background-position: center center; background-repeat: no-repeat; background-color: #000000;"
