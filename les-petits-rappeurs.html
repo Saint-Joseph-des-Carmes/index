@@ -24,29 +24,6 @@
       })();
     }
   </script>
-	<script>
-const newURL = "/petits-rappeurs.png";
-
-function replaceImage() {
-    // 1. Remplacer toutes les images Wix
-    document.querySelectorAll('img[src*="static.wixstatic.com/media/"]').forEach(img => {
-        img.src = newURL;
-    });
-
-    // 2. Remplacer les backgrounds Wix
-    document.querySelectorAll('[style*="static.wixstatic.com/media/"]').forEach(el => {
-        el.style.backgroundImage = `url("${newURL}")`;
-    });
-}
-
-// Premier passage
-document.addEventListener("DOMContentLoaded", replaceImage);
-
-// Surveiller le DOM en continu
-const observer = new MutationObserver(replaceImage);
-observer.observe(document.documentElement, { childList: true, subtree: true });
-</script>
-
 
   <!-- Legacy Polyfills -->
   <script nomodule="" src="https://static.parastorage.com/unpkg/core-js-bundle@3.2.1/minified.js"></script>
